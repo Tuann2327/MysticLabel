@@ -1,6 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Database, Loader2, FileText, ChevronDown, Layers, RotateCcw, ClipboardList, LayoutGrid, Zap, Printer, MousePointer2, CheckCircle2, Settings2, Sliders } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { LayoutType, AppTab, LAYOUT_CONFIGS, OrderItem } from './types';
 import Grid from './components/Grid';
 import OrderImport from './components/OrderImport';
@@ -8,36 +9,39 @@ import OrderImport from './components/OrderImport';
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/1sedz_9daFaNyFBo5QpEj06dzm7BiT3Pz1BAUwj5XXu0/export?format=csv&gid=0";
 const LOGO_URL = "https://mysticperfume.com/cdn/shop/files/MYSTIC_PERFUME_LOGO_600_x_300_px_38fd0169-c15a-4ba4-bff4-8bc2702702b7.png?v=1744734157&width=200";
 
+const BRANDS = ["Amouage","BDK Parfums","Boadicea","Bond No.9","Bvlgari",
+                "Byredo","Clive Christian","Celine","Creed","D'Annam",
+                "Diptyque","Electimuss","Ella K","Ermenegildo Zegna","Essential Parfums",
+                "Ex Nihilo","Fugazzi","Fragrance Du Bois","Frederic Malle","Giardini Di Toscana",
+                "Goldfield & Banks","Guerlain","Initio","Jo Malone","Jovoy","Kajal","Kayali",
+                "Kilian","Le Labo","Lorenzo Pazzaglia","Louis Vuitton","Loumari","Maison Crivelli",
+                "Maison Francis Kurkdjian","Maison Mataha","Mancera","Matiere Premiere","Memo Paris",
+                "Mes Bisous","Mind Games","M.Micallef","Nasomatto","Nishane","Orto Parisi",
+                "Parfums de marly","Penhaligons","Roja","Room 1015","Scents Of Wood","Serge Lutens",
+                "Simone Andreoli","Sospiro","Sora Dora","Stephane Humbert Lucas","The Harmonist",
+                "Tom Ford","Une Nuit Nomade","Xerjoff","YSL","Zoologist","Yves Saint Laurent"];
+
+const WORDS_TO_REMOVE = ["Le Vestiaire Des Parfums"];
+
+const ALT_NAME_DICT: Record<string, string> = {
+  "baccarat rouge": "Baccarat Rouge 540",
+  "ambre noir": "Ambre Noir"
+};
+
 const preprocessText = (text: string): string => {
   if (!text) return '';
-  const brands = ["Amouage","BDK Parfums","Boadicea","Bond No.9","Bvlgari",
-                  "Byredo","Clive Christian","Celine","Creed","D'Annam",
-                  "Diptyque","Electimuss","Ella K","Ermenegildo Zegna","Essential Parfums",
-                  "Ex Nihilo","Fugazzi","Fragrance Du Bois","Frederic Malle","Giardini Di Toscana",
-                  "Goldfield & Banks","Guerlain","Initio","Jo Malone","Jovoy","Kajal","Kayali",
-                  "Kilian","Le Labo","Lorenzo Pazzaglia","Louis Vuitton","Loumari","Maison Crivelli",
-                  "Maison Francis Kurkdjian","Maison Mataha","Mancera","Matiere Premiere","Memo Paris",
-                  "Mes Bisous","Mind Games","M.Micallef","Nasomatto","Nishane","Orto Parisi",
-                  "Parfums de marly","Penhaligons","Roja","Room 1015","Scents Of Wood","Serge Lutens",
-                  "Simone Andreoli","Sospiro","Sora Dora","Stephane Humbert Lucas","The Harmonist",
-                  "Tom Ford","Une Nuit Nomade","Xerjoff","YSL","Zoologist","Yves Saint Laurent"];
-  const wordsToRemove = ["Le Vestiaire Des Parfums"];
-  const altNameDict: Record<string, string> = {
-    "baccarat rouge": "Baccarat Rouge 540",
-    "ambre noir": "Ambre Noir"
-  };
   let result = text.toString();
-  brands.forEach(b => {
+  BRANDS.forEach(b => {
     const re = new RegExp('\\b' + b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\b','gi');
     result = result.replace(re,'');
   });
-  wordsToRemove.forEach(w => {
+  WORDS_TO_REMOVE.forEach(w => {
     const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\b','gi');
     result = result.replace(re,'');
   });
   result = result.replace(/\s+/g,' ').replace(/^sample\s*-\s*/i, '').trim();
   const lower = result.toLowerCase();
-  for (const [key, value] of Object.entries(altNameDict)) {
+  for (const [key, value] of Object.entries(ALT_NAME_DICT)) {
     if (key.toLowerCase() === lower) return value;
   }
   return result;
@@ -53,6 +57,8 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [existingOrders, setExistingOrders] = useState<Set<string>>(new Set());
+  const [isGridLocked, setIsGridLocked] = useState(false);
+  const [showLockOverlay, setShowLockOverlay] = useState(false);
 
   const fetchExistingOrders = useCallback(async () => {
     try {
@@ -92,11 +98,15 @@ const App: React.FC = () => {
     setSelectedSize(config.options[0]);
     setSelectedIndices(new Set<number>());
     setMappedData({});
+    setIsGridLocked(false);
+    setShowLockOverlay(false);
   }, [layoutType]);
 
   const handleResetGrid = useCallback(() => {
     setMappedData({});
     setSelectedIndices(new Set<number>());
+    setIsGridLocked(false);
+    setShowLockOverlay(false);
   }, []);
 
   const fetchAndMapData = async () => {
@@ -146,6 +156,7 @@ const App: React.FC = () => {
       });
       setMappedData(newMappings);
       setSelectedIndices(new Set<number>());
+      setIsGridLocked(true);
     } catch (error) {
       console.error("Error fetching data:", error);
       alert("Failed to load data.");
@@ -155,6 +166,7 @@ const App: React.FC = () => {
   };
 
   const handleToggleCell = useCallback((index: number, forceState?: boolean) => {
+    if (isGridLocked) return;
     setSelectedIndices(prev => {
       const next = new Set<number>(prev);
       const isSelected = forceState !== undefined ? forceState : !next.has(index);
@@ -165,6 +177,7 @@ const App: React.FC = () => {
   }, []);
 
   const selectAll = () => {
+    if (isGridLocked) return;
     const config = LAYOUT_CONFIGS[layoutType];
     const total = config.rows * config.cols;
     const all = new Set<number>();
@@ -310,6 +323,65 @@ const App: React.FC = () => {
     printWindow.document.close();
   };
 
+  const generatePerfumeList = () => {
+    const items = importedItems
+      .map(item => item.productTitle?.trim())
+      .filter(title => title && title.length > 0);
+      
+    if (items.length === 0) {
+      alert("No data imported yet.");
+      return;
+    }
+
+    // Extract unique sorted names
+    const uniqueNames = Array.from(new Set(items))
+      .sort((a: string, b: string) => {
+        const aHasBrand = BRANDS.some(brand => a.toLowerCase().includes(brand.toLowerCase()));
+        const bHasBrand = BRANDS.some(brand => b.toLowerCase().includes(brand.toLowerCase()));
+        
+        if (aHasBrand && !bHasBrand) return -1;
+        if (!aHasBrand && bHasBrand) return 1;
+        return a.localeCompare(b);
+      });
+
+    const doc = new jsPDF({
+      unit: 'in',
+      format: [4.03, 11]
+    });
+    
+    const margin = 0.25;
+    const pageWidth = 4.03;
+    
+    // Header
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Perfume Inventory", margin, 0.5);
+    
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, margin, 0.65);
+    doc.line(margin, 0.75, pageWidth - margin, 0.75);
+
+    // List
+    let y = 1.0;
+    doc.setFontSize(9);
+    uniqueNames.forEach((name, index) => {
+      const text = `${index + 1}. ${name}`;
+      const lines = doc.splitTextToSize(text, pageWidth - (margin * 2));
+      
+      if (y + (lines.length * 0.15) > 10.5) {
+        doc.addPage([4.03, 11]);
+        y = 0.5;
+      }
+      
+      doc.text(lines, margin, y);
+      y += (lines.length * 0.15) + 0.05;
+    });
+
+    const blobUrl = doc.output('bloburl');
+    window.open(blobUrl, '_blank');
+  };
+
   const currentConfig = LAYOUT_CONFIGS[layoutType];
 
   return (
@@ -349,6 +421,14 @@ const App: React.FC = () => {
 
           {/* Right: Status */}
           <div className="absolute right-0 flex items-center gap-5">
+            <button 
+              onClick={generatePerfumeList}
+              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-black px-4 py-1.5 rounded-full border border-black/10 shadow-sm transition-all active:scale-95 text-[10px] font-bold uppercase tracking-wider"
+            >
+              <FileText size={14} className="text-blue-500" />
+              Generate Perfume List
+            </button>
+
             {isBackgroundSyncing && (
               <div className="flex items-center gap-2 text-[10px] font-bold text-blue-500 px-3 py-1 bg-blue-50 rounded-full animate-pulse">
                 <Loader2 size={12} className="animate-spin" />
@@ -368,8 +448,45 @@ const App: React.FC = () => {
           <div className="flex-1 flex flex-col items-center justify-center bg-[#f5f5f7] overflow-hidden p-6">
             <div className="flex flex-row items-stretch gap-6 h-full min-h-0">
               {/* Workspace Area - Sheet View */}
-              <div className="h-full shadow-xl rounded-sm overflow-hidden aspect-[8.5/11] bg-white shrink-0">
+              <div 
+                className="h-full shadow-xl rounded-sm overflow-hidden aspect-[8.5/11] bg-white shrink-0 relative"
+                onClick={() => isGridLocked && !showLockOverlay && setShowLockOverlay(true)}
+              >
                 <Grid config={currentConfig} selectedIndices={selectedIndices} onToggleCell={handleToggleCell} mappedData={mappedData} />
+                
+                {isGridLocked && showLockOverlay && (
+                  <div 
+                    className="absolute inset-0 z-20 animate-in fade-in duration-300"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowLockOverlay(false);
+                    }}
+                  >
+                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px]" />
+                    <div className="absolute inset-0 flex items-center justify-center p-12">
+                      <div 
+                        className="bg-white p-10 rounded-[40px] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-black/5 flex flex-col items-center gap-6 max-w-[280px] text-center animate-in zoom-in-95 duration-300"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="space-y-2">
+                          <h4 className="text-xl font-black text-black tracking-tight">Grid Locked</h4>
+                          <p className="text-[11px] text-gray-500 font-bold leading-relaxed uppercase tracking-wider">
+                            Canvas is protected after mapping
+                          </p>
+                        </div>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResetGrid();
+                          }}
+                          className="text-xs font-black text-black underline underline-offset-4 hover:text-blue-600 transition-colors cursor-pointer"
+                        >
+                          Reset Canvas
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* macOS Inspector Toolbar (Floating Sidebar next to Grid) */}
@@ -448,8 +565,8 @@ const App: React.FC = () => {
                     <div className="space-y-3">
                       <button 
                         onClick={fetchAndMapData}
-                        disabled={isLoading || selectedIndices.size === 0}
-                        className={`w-full flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-3 rounded-xl transition-all font-bold text-xs active:scale-95 shadow-sm ${(isLoading || selectedIndices.size === 0) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        disabled={isLoading || selectedIndices.size === 0 || isGridLocked}
+                        className={`w-full flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-3 rounded-xl transition-all font-bold text-xs active:scale-95 shadow-sm ${(isLoading || selectedIndices.size === 0 || isGridLocked) ? 'opacity-40 cursor-not-allowed' : ''}`}
                       >
                         {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
                         Auto-Map
@@ -466,7 +583,11 @@ const App: React.FC = () => {
                       <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Selection</h3>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={selectAll} className="flex-1 bg-white border border-black/10 hover:bg-gray-50 px-2 py-2.5 rounded-lg transition-all font-bold text-[10px] text-gray-600 active:scale-95 shadow-sm">
+                      <button 
+                        onClick={selectAll} 
+                        disabled={isGridLocked}
+                        className={`flex-1 bg-white border border-black/10 hover:bg-gray-50 px-2 py-2.5 rounded-lg transition-all font-bold text-[10px] text-gray-600 active:scale-95 shadow-sm ${isGridLocked ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
                         Select All
                       </button>
                       <button onClick={handleResetGrid} className="flex-1 bg-white border border-black/10 hover:bg-red-50 hover:text-red-500 px-2 py-2.5 rounded-lg transition-all font-bold text-[10px] text-gray-600 active:scale-95 shadow-sm">

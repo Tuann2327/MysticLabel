@@ -7,6 +7,7 @@ interface GridProps {
   selectedIndices: Set<number>;
   mappedData: Record<number, string>;
   onToggleCell: (index: number, forceState?: boolean) => void;
+  disabled?: boolean;
 }
 
 interface SelectionBox {
@@ -16,7 +17,7 @@ interface SelectionBox {
   currentY: number;
 }
 
-const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onToggleCell }) => {
+const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onToggleCell, disabled }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [dragAction, setDragAction] = useState<'selecting' | 'deselecting'>('selecting');
@@ -44,7 +45,7 @@ const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onTogg
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    if (disabled || e.button !== 0) return;
     const startX = e.clientX;
     const startY = e.clientY;
     const initialIndex = getCellIndexFromPoint(startX, startY);
