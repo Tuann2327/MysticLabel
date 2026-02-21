@@ -21,7 +21,7 @@ interface ModalState {
   type: 'danger' | 'warning' | 'success';
 }
 
-const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw-XatBpanBEd6jZmxaWfcXDQUnPnI17OO-BEg-VuLzyUO_9bdkDxd4zo_ZRZA89voz/exec";
+const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwY_PI1Q89G8HtqHGYmvQQlDOxuGaMKOoaMgjiiGI39o3X16rDLVForSmE7jWR_omTj7Q/exec";
 
 const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyncing, setIsSyncing, existingOrders }) => {
   const [searchTerm, setSearchTerm] = useState('');
