@@ -7,6 +7,7 @@ interface GridProps {
   selectedIndices: Set<number>;
   mappedData: Record<number, string>;
   onToggleCell: (index: number, forceState?: boolean) => void;
+  preprocessText?: (text: string) => string;
   disabled?: boolean;
 }
 
@@ -17,7 +18,7 @@ interface SelectionBox {
   currentY: number;
 }
 
-const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onToggleCell, disabled }) => {
+const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onToggleCell, preprocessText, disabled }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [dragAction, setDragAction] = useState<'selecting' | 'deselecting'>('selecting');
@@ -136,10 +137,10 @@ const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onTogg
               {mappedValue ? (
                 <div className="flex flex-col items-center gap-0.5 w-full pointer-events-none">
                   <span className={`text-[7px] font-bold uppercase truncate w-full leading-tight px-1 tracking-tight ${isSelected ? 'text-white' : 'text-black'}`}>
-                    {mappedValue}
+                    {preprocessText ? preprocessText(mappedValue) : mappedValue}
                   </span>
                   <img 
-                    src="https://i.postimg.cc/K8sVw3Dw/Mystic-Logo.png" 
+                    src="https://i.postimg.cc/zGCwQsJh/decant-Logo.png" 
                     className={`h-1.5 w-auto object-contain ${isSelected ? 'brightness-[10] opacity-80' : 'opacity-30'}`} 
                     alt="Logo" 
                   />

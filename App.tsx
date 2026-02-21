@@ -5,46 +5,31 @@ import { jsPDF } from 'jspdf';
 import { LayoutType, AppTab, LAYOUT_CONFIGS, OrderItem } from './types';
 import Grid from './components/Grid';
 import OrderImport from './components/OrderImport';
+import SettingsModal from './components/SettingsModal';
 
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/1sedz_9daFaNyFBo5QpEj06dzm7BiT3Pz1BAUwj5XXu0/export?format=csv&gid=0";
+// IMPORTANT: Find the GID of your 'setting' tab in the browser URL and replace '0' below
+const SETTINGS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1sedz_9daFaNyFBo5QpEj06dzm7BiT3Pz1BAUwj5XXu0/export?format=csv&gid=872342780"; 
+const SETTINGS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw-XatBpanBEd6jZmxaWfcXDQUnPnI17OO-BEg-VuLzyUO_9bdkDxd4zo_ZRZA89voz/exec";
 const LOGO_URL = "https://mysticperfume.com/cdn/shop/files/MYSTIC_PERFUME_LOGO_600_x_300_px_38fd0169-c15a-4ba4-bff4-8bc2702702b7.png?v=1744734157&width=200";
 
-const BRANDS = ["Amouage","BDK Parfums","Boadicea","Bond No.9","Bvlgari",
-                "Byredo","Clive Christian","Celine","Creed","D'Annam",
-                "Diptyque","Electimuss","Ella K","Ermenegildo Zegna","Essential Parfums",
-                "Ex Nihilo","Fugazzi","Fragrance Du Bois","Frederic Malle","Giardini Di Toscana",
-                "Goldfield & Banks","Guerlain","Initio","Jo Malone","Jovoy","Kajal","Kayali",
-                "Kilian","Le Labo","Lorenzo Pazzaglia","Louis Vuitton","Loumari","Maison Crivelli",
-                "Maison Francis Kurkdjian","Maison Mataha","Mancera","Matiere Premiere","Memo Paris",
-                "Mes Bisous","Mind Games","M.Micallef","Nasomatto","Nishane","Orto Parisi",
-                "Parfums de marly","Penhaligons","Roja","Room 1015","Scents Of Wood","Serge Lutens",
-                "Simone Andreoli","Sospiro","Sora Dora","Stephane Humbert Lucas","The Harmonist",
-                "Tom Ford","Une Nuit Nomade","Xerjoff","YSL","Zoologist","Yves Saint Laurent"];
+const DEFAULT_BRANDS = ["Amouage","BDK Parfums","Boadicea","Bond No.9","Bvlgari",
+                  "Byredo","Clive Christian","Celine","Creed","D'Annam",
+                  "Diptyque","Electimuss","Ella K","Ermenegildo Zegna","Essential Parfums",
+                  "Ex Nihilo","Fugazzi","Fragrance Du Bois","Frederic Malle","Giardini Di Toscana",
+                  "Goldfield & Banks","Guerlain","Initio","Jo Malone","Jovoy","Kajal","Kayali",
+                  "Kilian","Le Labo","Lorenzo Pazzaglia","Louis Vuitton","Loumari","Maison Crivelli",
+                  "Maison Francis Kurkdjian","Maison Mataha","Mancera","Matiere Premiere","Memo Paris",
+                  "Mes Bisous","Mind Games","M.Micallef","Nasomatto","Nishane","Orto Parisi",
+                  "Parfums de Marly","Penhaligons","Roja","Room 1015","Scents Of Wood","Serge Lutens",
+                  "Simone Andreoli","Sospiro","Sora Dora","Stephane Humbert Lucas","The Harmonist",
+                  "Tom Ford","Une Nuit Nomade","Xerjoff","YSL","Zoologist","Yves Saint Laurent", "Stéphane Humbert Lucas"];
 
-const WORDS_TO_REMOVE = ["Le Vestiaire Des Parfums"];
+const DEFAULT_WORDS_TO_REMOVE = ["Le Vestiaire Des Parfums"];
 
-const ALT_NAME_DICT: Record<string, string> = {
+const DEFAULT_ALT_NAME_DICT: Record<string, string> = {
   "baccarat rouge": "Baccarat Rouge 540",
   "ambre noir": "Ambre Noir"
-};
-
-const preprocessText = (text: string): string => {
-  if (!text) return '';
-  let result = text.toString();
-  BRANDS.forEach(b => {
-    const re = new RegExp('\\b' + b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\b','gi');
-    result = result.replace(re,'');
-  });
-  WORDS_TO_REMOVE.forEach(w => {
-    const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\b','gi');
-    result = result.replace(re,'');
-  });
-  result = result.replace(/\s+/g,' ').replace(/^sample\s*-\s*/i, '').trim();
-  const lower = result.toLowerCase();
-  for (const [key, value] of Object.entries(ALT_NAME_DICT)) {
-    if (key.toLowerCase() === lower) return value;
-  }
-  return result;
 };
 
 const App: React.FC = () => {
@@ -59,6 +44,87 @@ const App: React.FC = () => {
   const [existingOrders, setExistingOrders] = useState<Set<string>>(new Set());
   const [isGridLocked, setIsGridLocked] = useState(false);
   const [showLockOverlay, setShowLockOverlay] = useState(false);
+  
+  // Settings State
+  const [brands, setBrands] = useState<string[]>(DEFAULT_BRANDS);
+  const [wordsToRemove, setWordsToRemove] = useState<string[]>(DEFAULT_WORDS_TO_REMOVE);
+  const [altNameDict, setAltNameDict] = useState<Record<string, string>>(DEFAULT_ALT_NAME_DICT);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSettingsLoading, setIsSettingsLoading] = useState(false);
+
+  const preprocessText = useCallback((text: string): string => {
+    if (!text) return '';
+    let result = text.toString();
+    brands.forEach(b => {
+      const re = new RegExp('\\b' + b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\b','gi');
+      result = result.replace(re,'');
+    });
+    wordsToRemove.forEach(w => {
+      const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\b','gi');
+      result = result.replace(re,'');
+    });
+    result = result.replace(/\s+/g,' ').replace(/^sample\s*-\s*/i, '').trim();
+    const lower = result.toLowerCase();
+    const entries = Object.entries(altNameDict) as [string, string][];
+    for (const [key, value] of entries) {
+      if (key.toLowerCase() === lower) return value;
+    }
+    return result;
+  }, [brands, wordsToRemove, altNameDict]);
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const response = await fetch(`${SETTINGS_SHEET_URL}&cachebust=${Date.now()}`);
+      if (!response.ok) return;
+      const text = await response.text();
+      const rows = text.split('\n').map(row => row.split(',').map(c => c.replace(/"/g, '').trim()));
+      
+      const newBrands: string[] = [];
+      const newWords: string[] = [];
+      const newAlt: Record<string, string> = {};
+
+      rows.forEach((cols: string[]) => {
+        if (cols.length < 2) return;
+        const type = cols[0].toUpperCase();
+        const val = cols[1];
+        if (type === 'BRAND') newBrands.push(val);
+        else if (type === 'WORD') newWords.push(val);
+        else if (type === 'ALT' && cols.length >= 3) newAlt[val.toLowerCase()] = cols[2];
+      });
+
+      if (newBrands.length > 0) setBrands(newBrands);
+      if (newWords.length > 0) setWordsToRemove(newWords);
+      if (Object.keys(newAlt).length > 0) setAltNameDict(newAlt);
+    } catch (err) {
+      console.error("Failed to fetch settings:", err);
+    }
+  }, []);
+
+  const saveSettings = async (newSettings: { brands: string[], wordsToRemove: string[], altNameDict: Record<string, string> }) => {
+    setIsSettingsLoading(true);
+    try {
+      const payload: any[] = [];
+      newSettings.brands.forEach(b => payload.push({ type: 'BRAND', val: b }));
+      newSettings.wordsToRemove.forEach(w => payload.push({ type: 'WORD', val: w }));
+      Object.entries(newSettings.altNameDict).forEach(([k, v]) => payload.push({ type: 'ALT', val: k, val2: v }));
+
+      await fetch(SETTINGS_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'saveSettings', data: payload })
+      });
+
+      setBrands(newSettings.brands);
+      setWordsToRemove(newSettings.wordsToRemove);
+      setAltNameDict(newSettings.altNameDict);
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+      alert("Failed to save settings to Google Sheets.");
+    } finally {
+      setIsSettingsLoading(false);
+    }
+  };
 
   const fetchExistingOrders = useCallback(async () => {
     try {
@@ -100,6 +166,7 @@ const App: React.FC = () => {
     setMappedData({});
     setIsGridLocked(false);
     setShowLockOverlay(false);
+    fetchSettings();
   }, [layoutType]);
 
   const handleResetGrid = useCallback(() => {
@@ -135,7 +202,7 @@ const App: React.FC = () => {
           const rawSizeText = columns[2];
           const sizeMatch = rawSizeText.match(/(\d+(\.\d+)?)/);
           const cleanSize = sizeMatch ? sizeMatch[0] : '';
-          return { name: preprocessText(columns[1]), size: cleanSize };
+          return { name: columns[1], size: cleanSize };
         }).filter((entry): entry is {name: string, size: string} => entry !== null && entry.name.length > 0);
         filteredNames = entries
           .filter(entry => entry.size === numericTarget)
@@ -203,7 +270,7 @@ const App: React.FC = () => {
         </div>
         <div class="brand-box">
           <span class="fit-text">
-          ${value ? '<img src="https://i.postimg.cc/K8sVw3Dw/Mystic-Logo.png">' : ""}
+          ${value ? '<img src="https://i.postimg.cc/zGCwQsJh/decant-Logo.png">' : ""}
           </span>
         </div>
       </div>`;
@@ -324,33 +391,56 @@ const App: React.FC = () => {
   };
 
   const generatePerfumeList = () => {
-    const items = importedItems
-      .map(item => item.productTitle?.trim())
-      .filter(title => title && title.length > 0);
-      
-    if (items.length === 0) {
+    if (importedItems.length === 0) {
       alert("No data imported yet.");
       return;
     }
 
-    // Extract unique sorted names
-    const uniqueNames = Array.from(new Set(items))
-      .sort((a: string, b: string) => {
-        const aHasBrand = BRANDS.some(brand => a.toLowerCase().includes(brand.toLowerCase()));
-        const bHasBrand = BRANDS.some(brand => b.toLowerCase().includes(brand.toLowerCase()));
-        
-        if (aHasBrand && !bHasBrand) return -1;
-        if (!aHasBrand && bHasBrand) return 1;
-        return a.localeCompare(b);
-      });
+    // Group items by title and collect sizes
+    const grouped = importedItems.reduce((acc, item) => {
+      const title = item.productTitle?.trim();
+      if (!title) return acc;
+      if (!acc[title]) acc[title] = [];
+      acc[title].push(item.size);
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    // Sort titles: Brands first, then alphabetical
+    const sortedTitles = Object.keys(grouped).sort((a, b) => {
+      const aHasBrand = brands.some(brand => a.toLowerCase().includes(brand.toLowerCase()));
+      const bHasBrand = brands.some(brand => b.toLowerCase().includes(brand.toLowerCase()));
+      
+      if (aHasBrand && !bHasBrand) return -1;
+      if (!aHasBrand && bHasBrand) return 1;
+      return a.localeCompare(b);
+    });
+
+    const margin = 0.25;
+    const pageWidth = 4.03;
+    
+    // First pass: Calculate total height needed
+    const tempDoc = new jsPDF({ unit: 'in', format: [pageWidth, 200] });
+    tempDoc.setFontSize(9);
+    let currentY = 1.0; // Starting Y after header
+    
+    const displayData = sortedTitles.map((title, index) => {
+      const sizes = grouped[title]
+        .map(s => s.toLowerCase().replace('ml', '').trim())
+        .join(' | ');
+      const text = `${index + 1}. ${title} (${sizes})`;
+      const lines = tempDoc.splitTextToSize(text, pageWidth - (margin * 2));
+      const itemHeight = (lines.length * 0.15) + 0.05;
+      const itemY = currentY;
+      currentY += itemHeight;
+      return { lines, y: itemY };
+    });
+
+    const finalHeight = Math.max(currentY + 0.5, 2);
 
     const doc = new jsPDF({
       unit: 'in',
-      format: [4.03, 11]
+      format: [pageWidth, finalHeight]
     });
-    
-    const margin = 0.25;
-    const pageWidth = 4.03;
     
     // Header
     doc.setFontSize(14);
@@ -363,19 +453,9 @@ const App: React.FC = () => {
     doc.line(margin, 0.75, pageWidth - margin, 0.75);
 
     // List
-    let y = 1.0;
     doc.setFontSize(9);
-    uniqueNames.forEach((name, index) => {
-      const text = `${index + 1}. ${name}`;
-      const lines = doc.splitTextToSize(text, pageWidth - (margin * 2));
-      
-      if (y + (lines.length * 0.15) > 10.5) {
-        doc.addPage([4.03, 11]);
-        y = 0.5;
-      }
-      
-      doc.text(lines, margin, y);
-      y += (lines.length * 0.15) + 0.05;
+    displayData.forEach(item => {
+      doc.text(item.lines, margin, item.y);
     });
 
     const blobUrl = doc.output('bloburl');
@@ -387,58 +467,74 @@ const App: React.FC = () => {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[#f5f5f7]">
       {/* Apple Vibrant Header / Global Toolbar */}
-      <header className="no-print apple-blur sticky top-0 z-50 bg-white/75 border-b border-black/5 px-6 h-20 flex items-center shrink-0">
-        <div className="max-w-[1600px] mx-auto w-full flex items-center justify-center relative">
+      <header className="no-print apple-blur sticky top-0 z-50 bg-white/75 border-b border-black/5 px-4 md:px-6 h-20 flex items-center shrink-0">
+        <div className="max-w-[1600px] mx-auto w-full flex items-center justify-between relative">
           {/* Left: Logo */}
-          <div className="absolute left-0 flex items-center gap-3">
-            <img src={LOGO_URL} alt="Mystic Label" className="h-9 w-auto object-contain" />
-            <div className="h-5 w-px bg-black/10 mx-2" />
-            <div className="flex flex-col">
-              <h1 className="text-sm font-extrabold tracking-tight text-black leading-none uppercase">Mystic Label</h1>
-              <span className="text-[10px] font-semibold text-gray-400 mt-1 uppercase tracking-widest">Creative Suite</span>
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
+            <img src={LOGO_URL} alt="Mystic Label" className="h-7 md:h-9 w-auto object-contain" />
+            <div className="hidden sm:block h-5 w-px bg-black/10 mx-1 md:mx-2" />
+            <div className="hidden sm:flex flex-col">
+              <h1 className="text-xs md:text-sm font-extrabold tracking-tight text-black leading-none uppercase">Mystic Label</h1>
+              <span className="text-[8px] md:text-[10px] font-semibold text-gray-400 mt-0.5 md:mt-1 uppercase tracking-widest">Creative Suite</span>
             </div>
           </div>
           
           {/* Center: Tabs */}
-          <div className="ios-segmented-control p-1 bg-black/5 rounded-2xl flex items-center">
-            <button 
-              onClick={() => setActiveTab('import')}
-              className={`px-10 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'import' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-gray-900'}`}
-            >
-              <div className="flex items-center gap-2.5">
-                <ClipboardList size={18} /> Import Data
-              </div>
-            </button>
-            <button 
-              onClick={() => setActiveTab('grid')}
-              className={`px-10 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'grid' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-gray-900'}`}
-            >
-              <div className="flex items-center gap-2.5">
-                <LayoutGrid size={18} /> Label Print
-              </div>
-            </button>
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
+            <div className="ios-segmented-control p-0.5 md:p-1 bg-black/5 rounded-xl md:rounded-2xl flex items-center">
+              <button 
+                onClick={() => setActiveTab('import')}
+                className={`px-3 sm:px-6 md:px-10 py-1.5 md:py-2.5 text-[10px] sm:text-xs md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${activeTab === 'import' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-gray-900'}`}
+              >
+                <div className="flex items-center gap-1.5 md:gap-2.5">
+                  <ClipboardList size={14} className="md:w-[18px] md:h-[18px]" /> 
+                  <span className="hidden xs:inline">Import Data</span>
+                  <span className="xs:hidden">Import</span>
+                </div>
+              </button>
+              <button 
+                onClick={() => setActiveTab('grid')}
+                className={`px-3 sm:px-6 md:px-10 py-1.5 md:py-2.5 text-[10px] sm:text-xs md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${activeTab === 'grid' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-gray-900'}`}
+              >
+                <div className="flex items-center gap-1.5 md:gap-2.5">
+                  <LayoutGrid size={14} className="md:w-[18px] md:h-[18px]" /> 
+                  <span className="hidden xs:inline">Label Print</span>
+                  <span className="xs:hidden">Print</span>
+                </div>
+              </button>
+            </div>
           </div>
 
-          {/* Right: Status */}
-          <div className="absolute right-0 flex items-center gap-5">
-            <button 
-              onClick={generatePerfumeList}
-              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-black px-4 py-1.5 rounded-full border border-black/10 shadow-sm transition-all active:scale-95 text-[10px] font-bold uppercase tracking-wider"
-            >
-              <FileText size={14} className="text-blue-500" />
-              Generate Perfume List
-            </button>
-
+          {/* Right: Status & Settings */}
+          <div className="flex items-center gap-2 md:gap-4 shrink-0">
             {isBackgroundSyncing && (
-              <div className="flex items-center gap-2 text-[10px] font-bold text-blue-500 px-3 py-1 bg-blue-50 rounded-full animate-pulse">
+              <div className="hidden md:flex items-center gap-2 text-[10px] font-bold text-blue-500 px-3 py-1 bg-blue-50 rounded-full animate-pulse">
                 <Loader2 size={12} className="animate-spin" />
                 <span>CLOUD SYNC</span>
               </div>
             )}
-            <div className="flex items-center gap-2 bg-black/5 px-4 py-1.5 rounded-full border border-black/5">
+            
+            <div className="hidden lg:flex items-center gap-2 bg-black/5 px-3 py-1.5 rounded-full border border-black/5">
                <Zap size={12} className="text-amber-500" fill="currentColor" />
                <span className="text-[10px] font-black text-black/30">V1.0 PRO</span>
             </div>
+
+            <button 
+              onClick={generatePerfumeList}
+              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-black px-3 md:px-4 py-1.5 rounded-full border border-black/10 shadow-sm transition-all active:scale-95 text-[10px] font-bold uppercase tracking-wider"
+              title="Generate Perfume List"
+            >
+              <FileText size={14} className="text-blue-500" />
+              <span className="hidden sm:inline">List</span>
+            </button>
+
+            <button 
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-2 md:p-2.5 bg-white hover:bg-gray-50 text-gray-400 hover:text-black rounded-full border border-black/10 shadow-sm transition-all active:scale-95"
+              title="System Settings"
+            >
+              <Settings2 size={16} className="md:w-[18px] md:h-[18px]" />
+            </button>
           </div>
         </div>
       </header>
@@ -452,7 +548,13 @@ const App: React.FC = () => {
                 className="h-full shadow-xl rounded-sm overflow-hidden aspect-[8.5/11] bg-white shrink-0 relative"
                 onClick={() => isGridLocked && !showLockOverlay && setShowLockOverlay(true)}
               >
-                <Grid config={currentConfig} selectedIndices={selectedIndices} onToggleCell={handleToggleCell} mappedData={mappedData} />
+                <Grid 
+                  config={currentConfig} 
+                  selectedIndices={selectedIndices} 
+                  onToggleCell={handleToggleCell} 
+                  mappedData={mappedData} 
+                  preprocessText={preprocessText}
+                />
                 
                 {isGridLocked && showLockOverlay && (
                   <div 
@@ -631,6 +733,16 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      <SettingsModal 
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        brands={brands}
+        wordsToRemove={wordsToRemove}
+        altNameDict={altNameDict}
+        onSave={saveSettings}
+        isLoading={isSettingsLoading}
+      />
     </div>
   );
 };

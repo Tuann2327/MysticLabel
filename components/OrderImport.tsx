@@ -21,7 +21,7 @@ interface ModalState {
   type: 'danger' | 'warning' | 'success';
 }
 
-const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxecigL3qk6IbchaoXrSocL9x4dRxK9KgDek0NUZ__2NSbqkmz9xqgpm1ZWTvrZKKK5/exec";
+const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw-XatBpanBEd6jZmxaWfcXDQUnPnI17OO-BEg-VuLzyUO_9bdkDxd4zo_ZRZA89voz/exec";
 
 const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyncing, setIsSyncing, existingOrders }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -121,9 +121,9 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
     });
     fetch(SYNC_WEBHOOK_URL, {
       method: 'POST',
-      mode: 'no-cors', 
+      mode: 'no-cors',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ action: 'syncOrders', data: payload })
     }).finally(() => {
       setTimeout(() => setIsSyncing(false), 2000);
     });
@@ -215,25 +215,25 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
       )}
 
       {/* High Fidelity Control Bar */}
-      <div className="flex items-center justify-between p-5 bg-white/80 apple-blur border-b border-black/5 shrink-0">
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-3 rounded-xl cursor-pointer transition-all font-bold text-xs shadow-sm active:scale-95">
-            <Upload size={16} /> Import CSV / TXT
+      <div className="flex flex-col md:flex-row items-center justify-between p-4 md:p-5 bg-white/80 apple-blur border-b border-black/5 shrink-0 gap-4">
+        <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto overflow-x-auto no-scrollbar pb-2 md:pb-0">
+          <label className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 md:px-6 py-2.5 md:py-3 rounded-xl cursor-pointer transition-all font-bold text-[10px] md:text-xs shadow-sm active:scale-95 whitespace-nowrap">
+            <Upload size={16} /> <span className="hidden sm:inline">Import CSV / TXT</span><span className="sm:hidden">Import</span>
             <input type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
           </label>
-          <div className="h-6 w-px bg-black/5 mx-1" />
-          <button onClick={clearAll} className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-4 py-2.5 rounded-xl transition-all font-bold text-xs hover:bg-red-50 active:scale-95">
-            <Eraser size={16} /> Clear Workbench
+          <div className="h-6 w-px bg-black/5 mx-1 hidden md:block" />
+          <button onClick={clearAll} className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-3 md:px-4 py-2 md:py-2.5 rounded-xl transition-all font-bold text-[10px] md:text-xs hover:bg-red-50 active:scale-95 whitespace-nowrap">
+            <Eraser size={16} /> <span className="hidden sm:inline">Clear Workbench</span><span className="sm:hidden">Clear</span>
           </button>
         </div>
         
-        <div className="flex items-center gap-4 flex-1 max-w-2xl justify-end">
-           <div className="relative flex-1 max-w-xs group">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-300 transition-colors group-focus-within:text-blue-500" size={16} />
+        <div className="flex items-center gap-3 md:gap-4 w-full md:max-w-2xl justify-end">
+           <div className="relative flex-1 md:max-w-xs group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 transition-colors group-focus-within:text-blue-500" size={14} />
             <input 
               type="text" 
-              placeholder="Search orders..." 
-              className="w-full pl-11 pr-4 py-3 bg-gray-100 border-none rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs font-semibold text-gray-900 placeholder:text-gray-400" 
+              placeholder="Search..." 
+              className="w-full pl-9 pr-4 py-2.5 md:py-3 bg-gray-100 border-none rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-[10px] md:text-xs font-semibold text-gray-900 placeholder:text-gray-400" 
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)} 
             />
@@ -241,10 +241,10 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
           <button 
             onClick={handleSync}
             disabled={isSyncing || data.filter(i => i.productTitle).length === 0}
-            className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl transition-all font-bold text-xs shadow-lg shadow-blue-500/20 active:scale-95 group ${isSyncing ? 'opacity-70 cursor-wait' : ''}`}
+            className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 md:px-8 py-2.5 md:py-3 rounded-xl transition-all font-bold text-[10px] md:text-xs shadow-lg shadow-blue-500/20 active:scale-95 group whitespace-nowrap ${isSyncing ? 'opacity-70 cursor-wait' : ''}`}
           >
             {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />}
-            Sync to Canvas
+            <span className="hidden sm:inline">Sync to Canvas</span><span className="sm:hidden">Sync</span>
           </button>
         </div>
       </div>
