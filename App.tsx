@@ -7,10 +7,10 @@ import Grid from './components/Grid';
 import OrderImport from './components/OrderImport';
 import SettingsModal from './components/SettingsModal';
 
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/1sedz_9daFaNyFBo5QpEj06dzm7BiT3Pz1BAUwj5XXu0/export?format=csv&gid=0";
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=0";
 // IMPORTANT: Find the GID of your 'setting' tab in the browser URL and replace '0' below
-const SETTINGS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1sedz_9daFaNyFBo5QpEj06dzm7BiT3Pz1BAUwj5XXu0/export?format=csv&gid=872342780"; 
-const SETTINGS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw-XatBpanBEd6jZmxaWfcXDQUnPnI17OO-BEg-VuLzyUO_9bdkDxd4zo_ZRZA89voz/exec";
+const SETTINGS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=59548729"; 
+const SETTINGS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwY_PI1Q89G8HtqHGYmvQQlDOxuGaMKOoaMgjiiGI39o3X16rDLVForSmE7jWR_omTj7Q/exec";
 const LOGO_URL = "https://mysticperfume.com/cdn/shop/files/MYSTIC_PERFUME_LOGO_600_x_300_px_38fd0169-c15a-4ba4-bff4-8bc2702702b7.png?v=1744734157&width=200";
 
 const DEFAULT_BRANDS = ["Amouage","BDK Parfums","Boadicea","Bond No.9","Bvlgari",
