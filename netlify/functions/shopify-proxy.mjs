@@ -14,6 +14,7 @@ export const handler = async (event) => {
   const queryString = event.rawQuery
     || new URLSearchParams(event.queryStringParameters || {}).toString();
   const url = `https://${store}.myshopify.com${apiPath}${queryString ? '?' + queryString : ''}`;
+console.log('Fetching URL:', url); // ADD THIS
 
   try {
     const response = await fetch(url, {
