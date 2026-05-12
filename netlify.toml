@@ -7,7 +7,7 @@
   NODE_VERSION = "18"
 
 [[redirects]]
-  from   = "/shopify-proxy/*"
-  to     = "/.netlify/functions/shopify-proxy/:splat"
+  from = "/shopify-proxy/*"
+  to = "/.netlify/functions/shopify-proxy"
   status = 200
-  force  = true
+  force = true
