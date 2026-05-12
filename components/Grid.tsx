@@ -7,8 +7,8 @@ interface GridProps {
   selectedIndices: Set<number>;
   mappedData: Record<number, string>;
   onToggleCell: (index: number, forceState?: boolean) => void;
+  onClearCell?: (index: number) => void;
   preprocessText?: (text: string) => string;
-  disabled?: boolean;
 }
 
 interface SelectionBox {
@@ -18,7 +18,7 @@ interface SelectionBox {
   currentY: number;
 }
 
-const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onToggleCell, preprocessText, disabled }) => {
+const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onToggleCell, onClearCell, preprocessText }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [dragAction, setDragAction] = useState<'selecting' | 'deselecting'>('selecting');
@@ -46,7 +46,7 @@ const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onTogg
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (disabled || e.button !== 0) return;
+    if (e.button !== 0) return;
     const startX = e.clientX;
     const startY = e.clientY;
     const initialIndex = getCellIndexFromPoint(startX, startY);
@@ -120,18 +120,29 @@ const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onTogg
           const hasContent = !!mappedValue;
 
           return (
-            <div 
-              key={i} 
-              data-grid-index={i} 
+            <div
+              key={i}
+              data-grid-index={i}
               className={`
-                relative flex flex-col items-center justify-center text-center px-1 border-[0.5px] border-black/5 overflow-hidden
+                group relative flex flex-col items-center justify-center text-center px-1 border-[0.5px] border-black/5 overflow-hidden
                 ${isSelected ? 'bg-blue-600' : hasContent ? 'bg-green-50/20' : 'bg-white'}
-              `} 
+              `}
             >
               {/* Slot Index */}
               <span className={`absolute top-0.5 left-1 text-[6px] font-bold pointer-events-none ${isSelected ? 'text-blue-200' : 'text-gray-300'}`}>
                 {i + 1}
               </span>
+
+              {/* Per-cell clear button — visible on hover when mapped */}
+              {hasContent && onClearCell && (
+                <button
+                  className="absolute top-0 right-0 w-3 h-3 flex items-center justify-center bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 rounded-bl-sm"
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); onClearCell(i); }}
+                >
+                  <span style={{ fontSize: '6px', lineHeight: 1 }}>✕</span>
+                </button>
+              )}
 
               {/* Label Content */}
               {mappedValue ? (
@@ -139,14 +150,13 @@ const Grid: React.FC<GridProps> = ({ config, selectedIndices, mappedData, onTogg
                   <span className={`text-[7px] font-bold uppercase truncate w-full leading-tight px-1 tracking-tight ${isSelected ? 'text-white' : 'text-black'}`}>
                     {preprocessText ? preprocessText(mappedValue) : mappedValue}
                   </span>
-                  <img 
-                    src="https://i.postimg.cc/zGCwQsJh/decant-Logo.png" 
-                    className={`h-1.5 w-auto object-contain ${isSelected ? 'brightness-[10] opacity-80' : 'opacity-30'}`} 
-                    alt="Logo" 
+                  <img
+                    src="https://i.postimg.cc/zGCwQsJh/decant-Logo.png"
+                    className={`h-1.5 w-auto object-contain ${isSelected ? 'brightness-[10] opacity-80' : 'opacity-30'}`}
+                    alt="Logo"
                   />
                 </div>
               ) : (
-                /* Empty Slot Dot */
                 !isSelected && (
                   <div className="w-0.5 h-0.5 rounded-full bg-gray-100 pointer-events-none" />
                 )

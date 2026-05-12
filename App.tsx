@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Database, Loader2, FileText, ChevronDown, Layers, RotateCcw, ClipboardList, LayoutGrid, Zap, Printer, MousePointer2, CheckCircle2, Settings2, Sliders } from 'lucide-react';
+import { Loader2, FileText, ChevronDown, RotateCcw, ClipboardList, LayoutGrid, Zap, Printer, MousePointer2, Settings2, Search } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { LayoutType, AppTab, LAYOUT_CONFIGS, OrderItem } from './types';
 import Grid from './components/Grid';
@@ -8,8 +8,8 @@ import OrderImport from './components/OrderImport';
 import SettingsModal from './components/SettingsModal';
 
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=0";
-// IMPORTANT: Find the GID of your 'setting' tab in the browser URL and replace '0' below
-const SETTINGS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=59548729"; 
+const SETTINGS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=59548729";
+const PREPARED_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=1350505644";
 const SETTINGS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwY_PI1Q89G8HtqHGYmvQQlDOxuGaMKOoaMgjiiGI39o3X16rDLVForSmE7jWR_omTj7Q/exec";
 const LOGO_URL = "https://mysticperfume.com/cdn/shop/files/MYSTIC_PERFUME_LOGO_600_x_300_px_38fd0169-c15a-4ba4-bff4-8bc2702702b7.png?v=1744734157&width=200";
 
@@ -42,8 +42,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [existingOrders, setExistingOrders] = useState<Set<string>>(new Set());
-  const [isGridLocked, setIsGridLocked] = useState(false);
-  const [showLockOverlay, setShowLockOverlay] = useState(false);
+  const [previousMappedData, setPreviousMappedData] = useState<Record<number, string> | null>(null);
   
   // Settings State
   const [brands, setBrands] = useState<string[]>(DEFAULT_BRANDS);
@@ -51,6 +50,7 @@ const App: React.FC = () => {
   const [altNameDict, setAltNameDict] = useState<Record<string, string>>(DEFAULT_ALT_NAME_DICT);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSettingsLoading, setIsSettingsLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const preprocessText = useCallback((text: string): string => {
     if (!text) return '';
@@ -148,11 +148,9 @@ const App: React.FC = () => {
   const sizeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     importedItems.forEach(item => {
-      if (!item.size) return;
-      const numericPart = item.size.toLowerCase().replace('ml', '').trim();
-      if (!numericPart) return;
-      const cleanSize = numericPart + 'ml';
-      counts[cleanSize] = (counts[cleanSize] || 0) + 1;
+      if (!item.productTitle || !item.size) return;
+      const key = item.size.toLowerCase().replace('ml', '').trim() + 'ml';
+      counts[key] = (counts[key] || 0) + (item.quantity || 1);
     });
     return counts;
   }, [importedItems]);
@@ -164,27 +162,43 @@ const App: React.FC = () => {
     setSelectedSize(config.options[0]);
     setSelectedIndices(new Set<number>());
     setMappedData({});
-    setIsGridLocked(false);
-    setShowLockOverlay(false);
     fetchSettings();
   }, [layoutType]);
 
   const handleResetGrid = useCallback(() => {
     setMappedData({});
     setSelectedIndices(new Set<number>());
-    setIsGridLocked(false);
-    setShowLockOverlay(false);
+    setPreviousMappedData(null);
   }, []);
 
-  const fetchAndMapData = async () => {
-    if (selectedIndices.size === 0) {
+  const handleClearCell = useCallback((index: number) => {
+    setMappedData((prev: Record<number, string>) => {
+      setPreviousMappedData((current: Record<number, string> | null) => current ?? { ...prev });
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (previousMappedData !== null) {
+      setMappedData(previousMappedData);
+      setPreviousMappedData(null);
+      setSelectedIndices(new Set<number>());
+    }
+  }, [previousMappedData]);
+
+  const fetchAndMapData = async (overrideIndices?: Set<number>, overrideSize?: string) => {
+    const targetIndices = overrideIndices ?? selectedIndices;
+    const targetSize = overrideSize ?? selectedSize;
+    if (targetIndices.size === 0) {
       alert("Please select target cells on the grid first.");
       return;
     }
     setIsLoading(true);
     try {
       let filteredNames: string[] = [];
-      const numericTarget = selectedSize.replace('ml', '').trim().toLowerCase();
+      const numericTarget = targetSize.replace('ml', '').trim().toLowerCase();
       if (importedItems.length > 0) {
         filteredNames = importedItems
           .filter(item => {
@@ -192,7 +206,7 @@ const App: React.FC = () => {
             const itemSize = item.size.toLowerCase().trim();
             return itemSize === numericTarget;
           })
-          .map(item => item.productTitle);
+          .flatMap(item => Array(item.quantity || 1).fill(item.productTitle));
       } else {
         const response = await fetch(`${SHEET_URL}&cachebust=${Date.now()}`);
         const text = await response.text();
@@ -209,21 +223,39 @@ const App: React.FC = () => {
           .map(entry => entry.name);
       }
       if (filteredNames.length === 0) {
-        alert(`No items found for size ${selectedSize}. Check your imported items.`);
+        alert(`No items found for size ${targetSize}. Check your imported items.`);
         setIsLoading(false);
         return;
       }
-      const config = LAYOUT_CONFIGS[layoutType];
-      const sortedTarget = Array.from(selectedIndices).sort((a: number, b: number) => a - b);
+
+      // Build a frequency map of names already placed in cells outside the target selection.
+      // Ensures remapping a subset never duplicates items already on the grid,
+      // and correctly handles multiple labels with the same name.
+      const alreadyPlacedCounts: Record<string, number> = {};
+      Object.entries(mappedData).forEach(([cellIdxStr, name]) => {
+        const title = name as string;
+        if (!targetIndices.has(Number(cellIdxStr))) {
+          alreadyPlacedCounts[title] = (alreadyPlacedCounts[title] || 0) + 1;
+        }
+      });
+
+      const remaining: Record<string, number> = { ...alreadyPlacedCounts };
+      const availableNames = filteredNames.filter(name => {
+        if ((remaining[name] || 0) > 0) {
+          remaining[name]--;
+          return false;
+        }
+        return true;
+      });
+
+      setPreviousMappedData({ ...mappedData });
+      const sortedTarget = (Array.from(targetIndices) as number[]).sort((a, b) => a - b);
       const newMappings: Record<number, string> = { ...mappedData };
       sortedTarget.forEach((cellIdx: number, i: number) => {
-        if (filteredNames[i]) {
-          newMappings[cellIdx] = filteredNames[i];
-        }
+        if (availableNames[i]) newMappings[cellIdx] = availableNames[i];
       });
       setMappedData(newMappings);
       setSelectedIndices(new Set<number>());
-      setIsGridLocked(true);
     } catch (error) {
       console.error("Error fetching data:", error);
       alert("Failed to load data.");
@@ -232,9 +264,22 @@ const App: React.FC = () => {
     }
   };
 
+  const handleQuickMap = async (size: string) => {
+    const config = LAYOUT_CONFIGS[layoutType as LayoutType];
+    const total = config.rows * config.cols;
+    const emptyCells = new Set<number>();
+    for (let i = 0; i < total; i++) {
+      if (!mappedData[i]) emptyCells.add(i);
+    }
+    if (emptyCells.size === 0) {
+      alert("No empty cells to fill.");
+      return;
+    }
+    await fetchAndMapData(emptyCells, size);
+  };
+
   const handleToggleCell = useCallback((index: number, forceState?: boolean) => {
-    if (isGridLocked) return;
-    setSelectedIndices(prev => {
+    setSelectedIndices((prev: Set<number>) => {
       const next = new Set<number>(prev);
       const isSelected = forceState !== undefined ? forceState : !next.has(index);
       if (isSelected) next.add(index);
@@ -244,7 +289,6 @@ const App: React.FC = () => {
   }, []);
 
   const selectAll = () => {
-    if (isGridLocked) return;
     const config = LAYOUT_CONFIGS[layoutType];
     const total = config.rows * config.cols;
     const all = new Set<number>();
@@ -390,18 +434,59 @@ const App: React.FC = () => {
     printWindow.document.close();
   };
 
-  const generatePerfumeList = () => {
+  const generatePerfumeList = async () => {
     if (importedItems.length === 0) {
       alert("No data imported yet.");
       return;
     }
 
-    // Group items by title and collect sizes
+    // Fetch prepared items from the Prepared sheet tab
+    // Sheet structure: col 0 = item name, then columns labelled 1ml / 3ml / 5ml / 10ml
+    // A non-empty value in a size column means that item is prepared for that size.
+    const preparedMap = new Map<string, Set<string>>(); // normalised name → set of prepared sizes
+    try {
+      const res = await fetch(`${PREPARED_SHEET_URL}&cachebust=${Date.now()}`);
+      const text = await res.text();
+      const rows = text.split('\n').map(row =>
+        row.split(',').map(cell => cell.replace(/"/g, '').trim())
+      );
+
+      if (rows.length > 1) {
+        const header = rows[0].map(h => h.toLowerCase().replace(/\s+/g, ''));
+        const sizeColMap: Record<string, number> = {};
+        ['1ml', '3ml', '5ml', '10ml'].forEach(size => {
+          const idx = header.indexOf(size);
+          if (idx !== -1) sizeColMap[size] = idx;
+        });
+
+        rows.slice(1).forEach(cols => {
+          const name = cols[0]?.toLowerCase().trim();
+          if (!name) return;
+          Object.entries(sizeColMap).forEach(([size, colIdx]) => {
+            if (cols[colIdx]?.trim()) {
+              if (!preparedMap.has(name)) preparedMap.set(name, new Set());
+              preparedMap.get(name)!.add(size);
+            }
+          });
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch prepared list:", err);
+    }
+
+    const isSizePrepared = (rawTitle: string, size: string): boolean => {
+      const sizeNorm = size.toLowerCase().replace('ml', '').trim() + 'ml';
+      const check = (name: string) => preparedMap.get(name.toLowerCase())?.has(sizeNorm) ?? false;
+      return check(preprocessText(rawTitle)) || check(rawTitle);
+    };
+
+    // Group items by title; repeat size entry by quantity so counts are accurate
     const grouped = importedItems.reduce((acc, item) => {
       const title = item.productTitle?.trim();
       if (!title) return acc;
       if (!acc[title]) acc[title] = [];
-      acc[title].push(item.size);
+      const qty = item.quantity || 1;
+      for (let q = 0; q < qty; q++) acc[title].push(item.size);
       return acc;
     }, {} as Record<string, string[]>);
 
@@ -409,7 +494,6 @@ const App: React.FC = () => {
     const sortedTitles = Object.keys(grouped).sort((a, b) => {
       const aHasBrand = brands.some(brand => a.toLowerCase().includes(brand.toLowerCase()));
       const bHasBrand = brands.some(brand => b.toLowerCase().includes(brand.toLowerCase()));
-      
       if (aHasBrand && !bHasBrand) return -1;
       if (!aHasBrand && bHasBrand) return 1;
       return a.localeCompare(b);
@@ -417,22 +501,26 @@ const App: React.FC = () => {
 
     const margin = 0.25;
     const pageWidth = 4.03;
-    
+
     // First pass: Calculate total height needed
     const tempDoc = new jsPDF({ unit: 'in', format: [pageWidth, 200] });
     tempDoc.setFontSize(9);
-    let currentY = 1.0; // Starting Y after header
-    
+    let currentY = 1.0;
+
+    type SizePart = { num: string; prepared: boolean };
     const displayData = sortedTitles.map((title, index) => {
-      const sizes = grouped[title]
-        .map(s => s.toLowerCase().replace('ml', '').trim())
-        .join(' | ');
-      const text = `${index + 1}. ${title} (${sizes})`;
-      const lines = tempDoc.splitTextToSize(text, pageWidth - (margin * 2));
+      const sizeParts: SizePart[] = grouped[title].map((s: string) => ({
+        num: s.toLowerCase().replace('ml', '').trim(),
+        prepared: isSizePrepared(title, s),
+      }));
+      const anyPrepared = sizeParts.some(s => s.prepared);
+      // Plain text used only for height estimation
+      const plainText = `${index + 1}. ${title} (${sizeParts.map(s => s.prepared ? `${s.num}*` : s.num).join(' | ')})`;
+      const lines = tempDoc.splitTextToSize(plainText, pageWidth - margin * 2);
       const itemHeight = (lines.length * 0.15) + 0.05;
       const itemY = currentY;
       currentY += itemHeight;
-      return { lines, y: itemY };
+      return { title, sizeParts, anyPrepared, y: itemY, index };
     });
 
     const finalHeight = Math.max(currentY + 0.5, 2);
@@ -441,21 +529,66 @@ const App: React.FC = () => {
       unit: 'in',
       format: [pageWidth, finalHeight]
     });
-    
+
     // Header
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.text("Perfume Inventory", margin, 0.5);
-    
+
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
     doc.text(`${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, margin, 0.65);
     doc.line(margin, 0.75, pageWidth - margin, 0.75);
 
-    // List
+    // List — inline mixed formatting
     doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
     displayData.forEach(item => {
-      doc.text(item.lines, margin, item.y);
+      let curX = margin;
+      const y = item.y;
+
+      // Index number
+      doc.setFont("helvetica", "normal");
+      const indexText = `${item.index + 1}. `;
+      doc.text(indexText, curX, y);
+      curX += doc.getTextWidth(indexText);
+
+      // Title — underlined if any size is prepared
+      doc.text(item.title, curX, y);
+      if (item.anyPrepared) {
+        const tw = doc.getTextWidth(item.title);
+        doc.setLineWidth(0.004);
+        doc.line(curX, y + 0.015, curX + tw, y + 0.015);
+      }
+      curX += doc.getTextWidth(item.title);
+
+      // Opening paren
+      doc.setFont("helvetica", "normal");
+      doc.text(' (', curX, y);
+      curX += doc.getTextWidth(' (');
+
+      // Sizes — bold + * if prepared, normal otherwise
+      item.sizeParts.forEach((part, i) => {
+        if (i > 0) {
+          doc.setFont("helvetica", "normal");
+          doc.text(' | ', curX, y);
+          curX += doc.getTextWidth(' | ');
+        }
+        if (part.prepared) {
+          doc.setFont("helvetica", "bold");
+          const sizeText = `${part.num}*`;
+          doc.text(sizeText, curX, y);
+          curX += doc.getTextWidth(sizeText);
+        } else {
+          doc.setFont("helvetica", "normal");
+          doc.text(part.num, curX, y);
+          curX += doc.getTextWidth(part.num);
+        }
+      });
+
+      // Closing paren
+      doc.setFont("helvetica", "normal");
+      doc.text(')', curX, y);
     });
 
     const blobUrl = doc.output('bloburl');
@@ -467,7 +600,8 @@ const App: React.FC = () => {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[#f5f5f7]">
       {/* Apple Vibrant Header / Global Toolbar */}
-      <header className="no-print apple-blur sticky top-0 z-50 bg-white/75 border-b border-black/5 px-4 md:px-6 h-20 flex items-center shrink-0">
+      <header className="no-print apple-blur sticky top-0 z-50 bg-white/75 border-b border-black/5 shrink-0 flex flex-col">
+        <div className="px-4 md:px-6 h-20 flex items-center">
         <div className="max-w-[1600px] mx-auto w-full flex items-center justify-between relative">
           {/* Left: Logo */}
           <div className="flex items-center gap-2 md:gap-3 shrink-0">
@@ -492,12 +626,12 @@ const App: React.FC = () => {
                   <span className="xs:hidden">Import</span>
                 </div>
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('grid')}
                 className={`px-3 sm:px-6 md:px-10 py-1.5 md:py-2.5 text-[10px] sm:text-xs md:text-sm font-bold rounded-lg md:rounded-xl transition-all ${activeTab === 'grid' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-gray-900'}`}
               >
                 <div className="flex items-center gap-1.5 md:gap-2.5">
-                  <LayoutGrid size={14} className="md:w-[18px] md:h-[18px]" /> 
+                  <LayoutGrid size={14} className="md:w-[18px] md:h-[18px]" />
                   <span className="hidden xs:inline">Label Print</span>
                   <span className="xs:hidden">Print</span>
                 </div>
@@ -516,7 +650,7 @@ const App: React.FC = () => {
             
             <div className="hidden lg:flex items-center gap-2 bg-black/5 px-3 py-1.5 rounded-full border border-black/5">
                <Zap size={12} className="text-amber-500" fill="currentColor" />
-               <span className="text-[10px] font-black text-black/30">V1.0 PRO</span>
+               <span className="text-[10px] font-black text-black/30">V1.1 PROMAX</span>
             </div>
 
             <button 
@@ -537,6 +671,21 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
+        </div>
+        {activeTab === 'import' && (
+          <div className="px-4 md:px-6 h-11 flex items-center justify-center border-t border-black/5 bg-white/50">
+            <div className="relative w-full max-w-sm group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 transition-colors group-focus-within:text-blue-500 pointer-events-none" size={13} />
+                <input
+                  type="text"
+                  placeholder="Search orders, products..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-4 py-1.5 bg-black/5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-[11px] font-semibold text-gray-900 placeholder:text-gray-400"
+                />
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -544,165 +693,131 @@ const App: React.FC = () => {
           <div className="flex-1 flex flex-col items-center justify-center bg-[#f5f5f7] overflow-hidden p-6">
             <div className="flex flex-row items-stretch gap-6 h-full min-h-0">
               {/* Workspace Area - Sheet View */}
-              <div 
-                className="h-full shadow-xl rounded-sm overflow-hidden aspect-[8.5/11] bg-white shrink-0 relative"
-                onClick={() => isGridLocked && !showLockOverlay && setShowLockOverlay(true)}
-              >
-                <Grid 
-                  config={currentConfig} 
-                  selectedIndices={selectedIndices} 
-                  onToggleCell={handleToggleCell} 
-                  mappedData={mappedData} 
+              <div className="h-full shadow-xl rounded-sm overflow-hidden aspect-[8.5/11] bg-white shrink-0 relative">
+                <Grid
+                  config={currentConfig}
+                  selectedIndices={selectedIndices}
+                  onToggleCell={handleToggleCell}
+                  onClearCell={handleClearCell}
+                  mappedData={mappedData}
                   preprocessText={preprocessText}
                 />
-                
-                {isGridLocked && showLockOverlay && (
-                  <div 
-                    className="absolute inset-0 z-20 animate-in fade-in duration-300"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowLockOverlay(false);
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px]" />
-                    <div className="absolute inset-0 flex items-center justify-center p-12">
-                      <div 
-                        className="bg-white p-10 rounded-[40px] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-black/5 flex flex-col items-center gap-6 max-w-[280px] text-center animate-in zoom-in-95 duration-300"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="space-y-2">
-                          <h4 className="text-xl font-black text-black tracking-tight">Grid Locked</h4>
-                          <p className="text-[11px] text-gray-500 font-bold leading-relaxed uppercase tracking-wider">
-                            Canvas is protected after mapping
-                          </p>
-                        </div>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleResetGrid();
-                          }}
-                          className="text-xs font-black text-black underline underline-offset-4 hover:text-blue-600 transition-colors cursor-pointer"
-                        >
-                          Reset Canvas
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
 
-              {/* macOS Inspector Toolbar (Floating Sidebar next to Grid) */}
+              {/* Sidebar */}
               <aside className="no-print w-72 bg-white/95 apple-card rounded-[24px] flex flex-col shrink-0 shadow-xl border border-black/5 h-full">
-                <div className="flex-1 overflow-y-auto p-5 space-y-6">
-                  
-                  {/* Format Settings */}
+                <div className="flex-1 overflow-y-auto p-5 space-y-5">
+
+                  {/* Format Layout */}
                   <section>
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
                       <Settings2 size={14} className="text-blue-500" />
-                      <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Inspector</h3>
+                      <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Format</h3>
                     </div>
-                    
-                    <div className="space-y-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-gray-500 ml-1 uppercase tracking-wider">Format Layout</label>
-                        <div className="relative group">
-                          <select 
-                            value={layoutType}
-                            onChange={(e) => setLayoutType(e.target.value as LayoutType)}
-                            className="w-full bg-gray-50 border-none rounded-lg px-3 py-2.5 text-xs font-bold appearance-none pr-10 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer hover:bg-gray-100"
-                          >
-                            <option value="standard">1ml/3ml Small (8x20)</option>
-                            <option value="large">5ml/10ml Large (3x10)</option>
-                          </select>
-                          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={12} />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold text-gray-500 ml-1 uppercase tracking-wider">Size Capacity</label>
-                        <div className="relative group">
-                          <select 
-                            value={selectedSize}
-                            onChange={(e) => setSelectedSize(e.target.value)}
-                            className="w-full bg-gray-50 border-none rounded-lg px-3 py-2.5 text-xs font-bold appearance-none pr-10 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer hover:bg-gray-100"
-                          >
-                            {currentConfig.options.map(opt => (
-                              <option key={opt} value={opt}>
-                                {opt} {sizeCounts[opt] ? `(${sizeCounts[opt]} items)` : ''}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={12} />
-                        </div>
-                        {sizeCounts[selectedSize] > 0 && (
-                          <p className="text-[9px] font-bold text-blue-500 mt-1.5 ml-1 flex items-center gap-1.5">
-                            <Zap size={10} />
-                            {sizeCounts[selectedSize]} items found for this size
-                          </p>
-                        )}
-                      </div>
+                    <div className="relative">
+                      <select
+                        value={layoutType}
+                        onChange={(e) => setLayoutType(e.target.value as LayoutType)}
+                        className="w-full bg-gray-50 border-none rounded-lg px-3 py-2.5 text-xs font-bold appearance-none pr-10 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer hover:bg-gray-100"
+                      >
+                        <option value="standard">1ml / 3ml — Small (8×20)</option>
+                        <option value="large">5ml / 10ml — Large (3×10)</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={12} />
                     </div>
                   </section>
 
-                  {/* Stats Counter Section */}
+                  {/* Size Breakdown */}
+                  {Object.keys(sizeCounts).length > 0 && (
+                    <>
+                      <div className="h-px bg-black/5" />
+                      <section className="space-y-2">
+                        {currentConfig.options.map(size => (
+                          <div key={size} className="flex justify-between items-center">
+                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{size}</span>
+                            <span className="text-[10px] font-black text-black bg-gray-50 px-2 py-0.5 rounded-md border border-black/5 shadow-sm">
+                              {sizeCounts[size] ?? 0}
+                            </span>
+                          </div>
+                        ))}
+                      </section>
+                    </>
+                  )}
+
+                  {/* Manual Map — shown only when cells are drag-selected */}
+                  {selectedIndices.size > 0 && (
+                    <>
+                      <div className="h-px bg-black/5" />
+                      <section>
+                        <div className="flex items-center gap-2 mb-3">
+                          <MousePointer2 size={14} className="text-blue-500" />
+                          <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Map {selectedIndices.size} Selected</h3>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {currentConfig.options.map(size => (
+                            <button
+                              key={size}
+                              onClick={() => fetchAndMapData(selectedIndices, size)}
+                              disabled={isLoading}
+                              className="flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold text-xs active:scale-95 transition-all shadow-sm shadow-blue-500/20"
+                            >
+                              {isLoading ? <Loader2 size={12} className="animate-spin" /> : size}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setSelectedIndices(new Set<number>())}
+                          className="mt-2 w-full text-[9px] font-bold text-gray-400 hover:text-gray-600 py-1 transition-colors"
+                        >
+                          Clear Selection
+                        </button>
+                      </section>
+                    </>
+                  )}
+
+                  <div className="h-px bg-black/5" />
+
+                  {/* Stats */}
                   <section className="bg-gray-50 rounded-xl p-4 space-y-3 border border-black/5">
-                     <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Selected</span>
-                       <span className="text-[10px] font-black text-black bg-white px-2 py-0.5 rounded-md border border-black/5 shadow-sm">{selectedIndices.size}</span>
-                     </div>
-                     <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Mapped</span>
-                       <span className="text-[10px] font-black text-black bg-white px-2 py-0.5 rounded-md border border-black/5 shadow-sm">{Object.keys(mappedData).length}</span>
-                     </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Mapped</span>
+                      <span className="text-[10px] font-black text-black bg-white px-2 py-0.5 rounded-md border border-black/5 shadow-sm">
+                        {Object.keys(mappedData).length} / {currentConfig.rows * currentConfig.cols}
+                      </span>
+                    </div>
+                    {selectedIndices.size > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Selected</span>
+                        <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">{selectedIndices.size}</span>
+                      </div>
+                    )}
                   </section>
 
-                  <div className="h-px bg-black/5 mx-2" />
+                  <div className="h-px bg-black/5" />
 
-                  {/* Data Mapping */}
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Sliders size={14} className="text-gray-400" />
-                      <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Workbench</h3>
-                    </div>
-                    <div className="space-y-3">
-                      <button 
-                        onClick={fetchAndMapData}
-                        disabled={isLoading || selectedIndices.size === 0 || isGridLocked}
-                        className={`w-full flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-3 rounded-xl transition-all font-bold text-xs active:scale-95 shadow-sm ${(isLoading || selectedIndices.size === 0 || isGridLocked) ? 'opacity-40 cursor-not-allowed' : ''}`}
-                      >
-                        {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
-                        Auto-Map
-                      </button>
-                    </div>
-                  </section>
-                  
-                  <div className="h-px bg-black/5 mx-2" />
-
-                  {/* Selection Tools */}
-                  <section>
-                    <div className="flex items-center gap-2 mb-4">
-                      <MousePointer2 size={14} className="text-gray-400" />
-                      <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Selection</h3>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button 
-                        onClick={selectAll} 
-                        disabled={isGridLocked}
-                        className={`flex-1 bg-white border border-black/10 hover:bg-gray-50 px-2 py-2.5 rounded-lg transition-all font-bold text-[10px] text-gray-600 active:scale-95 shadow-sm ${isGridLocked ? 'opacity-40 cursor-not-allowed' : ''}`}
-                      >
-                        Select All
-                      </button>
-                      <button onClick={handleResetGrid} className="flex-1 bg-white border border-black/10 hover:bg-red-50 hover:text-red-500 px-2 py-2.5 rounded-lg transition-all font-bold text-[10px] text-gray-600 active:scale-95 shadow-sm">
-                        Clear Grid
-                      </button>
-                    </div>
+                  {/* Undo + Clear */}
+                  <section className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={handleUndo}
+                      disabled={previousMappedData === null}
+                      className={`flex items-center justify-center gap-1.5 bg-white border border-black/10 py-2.5 rounded-xl font-bold text-[10px] text-gray-600 transition-all active:scale-95 ${previousMappedData === null ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                    >
+                      <RotateCcw size={12} />
+                      Undo
+                    </button>
+                    <button
+                      onClick={handleResetGrid}
+                      className="flex items-center justify-center gap-1.5 bg-white border border-black/10 py-2.5 rounded-xl font-bold text-[10px] text-gray-600 hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-all active:scale-95"
+                    >
+                      Clear All
+                    </button>
                   </section>
 
                 </div>
 
-                {/* Main Print Action Panel */}
+                {/* Generate PDF */}
                 <div className="p-5 bg-gray-50/50 border-t border-black/5 rounded-b-[24px]">
-                  <button 
+                  <button
                     onClick={generatePrint}
                     disabled={Object.keys(mappedData).length === 0}
                     className={`w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-[16px] transition-all font-black text-xs shadow-lg shadow-blue-500/20 active:scale-95 ${Object.keys(mappedData).length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -717,9 +832,9 @@ const App: React.FC = () => {
         ) : (
           <div className="flex-1 flex flex-col p-10 max-w-7xl mx-auto w-full overflow-hidden">
             <div className="flex-1 overflow-hidden flex flex-col bg-white apple-card rounded-[32px] border border-black/5 shadow-2xl">
-              <OrderImport 
-                data={importedItems} 
-                onUpdate={setImportedItems} 
+              <OrderImport
+                data={importedItems}
+                onUpdate={setImportedItems}
                 onSync={() => {
                   setIsBackgroundSyncing(true);
                   fetchExistingOrders();
@@ -728,6 +843,7 @@ const App: React.FC = () => {
                 isSyncing={isBackgroundSyncing}
                 setIsSyncing={setIsBackgroundSyncing}
                 existingOrders={existingOrders}
+                searchTerm={searchTerm}
               />
             </div>
           </div>

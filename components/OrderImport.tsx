@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Upload, Plus, Trash2, Search, XCircle, Eraser, AlertTriangle, X, Send, CheckCircle2, Loader2 } from 'lucide-react';
+import { Upload, Plus, Trash2, XCircle, Eraser, AlertTriangle, Send, CheckCircle2, Loader2, ShoppingBag } from 'lucide-react';
 import { OrderItem } from '../types';
 
 interface OrderImportProps {
@@ -10,6 +10,7 @@ interface OrderImportProps {
   isSyncing: boolean;
   setIsSyncing: (val: boolean) => void;
   existingOrders: Set<string>;
+  searchTerm: string;
 }
 
 interface ModalState {
@@ -23,8 +24,8 @@ interface ModalState {
 
 const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwY_PI1Q89G8HtqHGYmvQQlDOxuGaMKOoaMgjiiGI39o3X16rDLVForSmE7jWR_omTj7Q/exec";
 
-const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyncing, setIsSyncing, existingOrders }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyncing, setIsSyncing, existingOrders, searchTerm }) => {
+  const [isAutoFetching, setIsAutoFetching] = useState(false);
   const [modal, setModal] = useState<ModalState>({
     isOpen: false,
     title: '',
@@ -37,22 +38,17 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
   const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
   const openConfirm = (config: Omit<ModalState, 'isOpen'>) => setModal({ ...config, isOpen: true });
 
+  const blank = (): OrderItem => ({ id: Math.random().toString(36).slice(2, 11), orderNumber: '', productTitle: '', size: '', quantity: 1 });
+
   const ensureTrailingBlank = (list: OrderItem[]): OrderItem[] => {
-    if (list.length === 0) {
-      return [{ id: Math.random().toString(36).substr(2, 9), orderNumber: '', productTitle: '', size: '' }];
-    }
+    if (list.length === 0) return [blank()];
     const last = list[list.length - 1];
     const isLastEmpty = last.orderNumber.trim() === '' && last.productTitle.trim() === '' && last.size.trim() === '';
-    if (!isLastEmpty) {
-      return [...list, { id: Math.random().toString(36).substr(2, 9), orderNumber: '', productTitle: '', size: '' }];
-    }
-    return list;
+    return isLastEmpty ? list : [...list, blank()];
   };
 
   useEffect(() => {
-    if (data.length === 0) {
-      onUpdate([{ id: Math.random().toString(36).substr(2, 9), orderNumber: '', productTitle: '', size: '' }]);
-    }
+    if (data.length === 0) onUpdate([blank()]);
   }, []);
 
   const itemsWithEffectiveOrders = useMemo(() => {
@@ -65,6 +61,50 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
     });
   }, [data]);
 
+  const fetchShopifyOrders = async () => {
+    setIsAutoFetching(true);
+    try {
+      const minDate = new Date();
+      minDate.setDate(minDate.getDate() - 3);
+      const params = new URLSearchParams({
+        fulfillment_status: 'unfulfilled',
+        status: 'open',
+        created_at_min: minDate.toISOString(),
+        limit: '250',
+        fields: 'id,order_number,name,created_at,line_items',
+      });
+      const res = await fetch(`/shopify-proxy/admin/api/2024-10/orders.json?${params}`);
+      if (!res.ok) throw new Error(`Shopify ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+      const { orders = [] } = await res.json();
+
+      const newItems: OrderItem[] = [];
+      orders.forEach((order: any) => {
+        order.line_items.forEach((li: any) => {
+          const vt: string = li.variant_title ?? '';
+          if (!vt.toLowerCase().includes('sample')) return;
+          const sizeMatch = vt.match(/(\d+(?:\.\d+)?)\s*ml/i);
+          newItems.push({
+            id: Math.random().toString(36).slice(2, 11),
+            orderNumber: order.order_number.toString(),
+            productTitle: li.title.replace(/^sample\s*[-–]\s*/i, '').replace(/\s+/g, ' ').trim(),
+            size: sizeMatch ? sizeMatch[1] : '',
+            quantity: li.quantity,
+          });
+        });
+      });
+
+      if (newItems.length === 0) {
+        alert('No unfulfilled sample orders found in the last 3 days.');
+        return;
+      }
+      onUpdate(ensureTrailingBlank(newItems));
+    } catch (err) {
+      alert(`Failed to fetch Shopify orders:\n${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsAutoFetching(false);
+    }
+  };
+
   const processCSV = (text: string) => {
     const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
     if (lines.length === 0) return;
@@ -76,14 +116,12 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
       const rawOrderName = cols[0];
       const rawProductTitle = cols[1];
       const rawVariant = cols[2];
-      const rawQty = parseInt(cols[3] || '1', 10);
+      const qty = Math.max(1, parseInt(cols[3] || '1', 10));
       const orderDigits = rawOrderName.replace(/\D/g, '') || rawOrderName;
       const cleanTitle = rawProductTitle.replace(/^sample\s*-\s*/gi, '').replace(/\s+/g, ' ').trim();
       const sizeMatch = rawVariant.match(/(\d+(\.\d+)?)/);
       const cleanSize = sizeMatch ? sizeMatch[0] : '';
-      for (let i = 0; i < rawQty; i++) {
-        newItems.push({ id: Math.random().toString(36).substr(2, 9), orderNumber: orderDigits, productTitle: cleanTitle, size: cleanSize });
-      }
+      newItems.push({ id: Math.random().toString(36).slice(2, 11), orderNumber: orderDigits, productTitle: cleanTitle, size: cleanSize, quantity: qty });
     });
     onUpdate(ensureTrailingBlank(newItems));
   };
@@ -131,15 +169,19 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
   };
 
   const updateCell = (id: string, field: keyof OrderItem, value: string) => {
-    const newData = data.map(item => item.id === id ? { ...item, [field]: value } : item);
+    const newData = data.map(item => {
+      if (item.id !== id) return item;
+      if (field === 'quantity') {
+        const qty = parseInt(value, 10);
+        return { ...item, quantity: isNaN(qty) || qty < 1 ? 1 : qty };
+      }
+      return { ...item, [field]: value } as OrderItem;
+    });
     onUpdate(ensureTrailingBlank(newData));
   };
 
   const deleteRow = (id: string) => {
-    if (data.length === 1) {
-      onUpdate([{ id: Math.random().toString(36).substr(2, 9), orderNumber: '', productTitle: '', size: '' }]);
-      return;
-    }
+    if (data.length === 1) { onUpdate([blank()]); return; }
     onUpdate(ensureTrailingBlank(data.filter(item => item.id !== id)));
   };
 
@@ -172,24 +214,24 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
       confirmText: 'Clear Everything',
       type: 'danger',
       onConfirm: () => {
-        onUpdate([{ id: Math.random().toString(36).substr(2, 9), orderNumber: '', productTitle: '', size: '' }]);
+        onUpdate([blank()]);
         closeModal();
       }
     });
   };
 
   const addRowAt = (index: number) => {
-    const newItem = { id: Math.random().toString(36).substr(2, 9), orderNumber: '', productTitle: '', size: '' };
     const newData = [...data];
-    newData.splice(index, 0, newItem);
+    newData.splice(index, 0, blank());
     onUpdate(ensureTrailingBlank(newData));
   };
 
-  const filteredData = itemsWithEffectiveOrders.filter(item => 
+  const filteredData = itemsWithEffectiveOrders.filter(item =>
     item.productTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.orderNumber.includes(searchTerm) ||
     item.effectiveOrder.includes(searchTerm)
   );
+
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -221,6 +263,14 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
             <Upload size={16} /> <span className="hidden sm:inline">Import CSV / TXT</span><span className="sm:hidden">Import</span>
             <input type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
           </label>
+          <button
+            onClick={fetchShopifyOrders}
+            disabled={isAutoFetching}
+            className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-600 px-4 md:px-6 py-2.5 md:py-3 rounded-xl transition-all font-bold text-[10px] md:text-xs shadow-sm active:scale-95 whitespace-nowrap disabled:opacity-60 disabled:cursor-wait"
+          >
+            {isAutoFetching ? <Loader2 size={16} className="animate-spin" /> : <ShoppingBag size={16} />}
+            <span className="hidden sm:inline">Auto Get Orders</span><span className="sm:hidden">Auto</span>
+          </button>
           <div className="h-6 w-px bg-black/5 mx-1 hidden md:block" />
           <button onClick={clearAll} className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-3 md:px-4 py-2 md:py-2.5 rounded-xl transition-all font-bold text-[10px] md:text-xs hover:bg-red-50 active:scale-95 whitespace-nowrap">
             <Eraser size={16} /> <span className="hidden sm:inline">Clear Workbench</span><span className="sm:hidden">Clear</span>
@@ -228,17 +278,7 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
         </div>
         
         <div className="flex items-center gap-3 md:gap-4 w-full md:max-w-2xl justify-end">
-           <div className="relative flex-1 md:max-w-xs group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 transition-colors group-focus-within:text-blue-500" size={14} />
-            <input 
-              type="text" 
-              placeholder="Search..." 
-              className="w-full pl-9 pr-4 py-2.5 md:py-3 bg-gray-100 border-none rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-[10px] md:text-xs font-semibold text-gray-900 placeholder:text-gray-400" 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-            />
-          </div>
-          <button 
+          <button
             onClick={handleSync}
             disabled={isSyncing || data.filter(i => i.productTitle).length === 0}
             className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 md:px-8 py-2.5 md:py-3 rounded-xl transition-all font-bold text-[10px] md:text-xs shadow-lg shadow-blue-500/20 active:scale-95 group whitespace-nowrap ${isSyncing ? 'opacity-70 cursor-wait' : ''}`}
@@ -256,7 +296,8 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
             <tr>
               <th className="w-40 px-8 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] text-left">Order Reference</th>
               <th className="px-8 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] text-left">Label Content / Name</th>
-              <th className="w-32 px-8 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] text-center">Volume</th>
+              <th className="w-24 px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] text-center">Volume</th>
+              <th className="w-16 px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] text-center">Qty</th>
             </tr>
           </thead>
           <tbody>
@@ -270,7 +311,7 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
               return (
                 <React.Fragment key={item.id}>
                   <tr className="h-0 relative">
-                    <td colSpan={3} className="p-0">
+                    <td colSpan={4} className="p-0">
                       <div className="absolute left-0 right-0 -top-[10px] h-5 z-10 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                         <button onClick={() => addRowAt(index)} className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg transform hover:scale-125 transition-transform active:scale-90">
                           <Plus size={12} strokeWidth={3} />
@@ -312,15 +353,26 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
                       />
                     </td>
                     <td className="p-0 relative">
-                      <div className="flex items-center group/size h-12">
-                        <input 
-                          className="w-full text-center px-8 bg-transparent text-gray-900 font-black text-xs outline-none focus:bg-white/50" 
-                          value={item.size} 
-                          onChange={(e) => updateCell(item.id, 'size', e.target.value)} 
-                          placeholder="ML" 
+                      <div className="flex items-center h-12">
+                        <input
+                          className="w-full text-center px-4 bg-transparent text-gray-900 font-black text-xs outline-none focus:bg-white/50"
+                          value={item.size}
+                          onChange={(e) => updateCell(item.id, 'size', e.target.value)}
+                          placeholder="ML"
                         />
-                        <button onClick={() => deleteRow(item.id)} className="absolute right-4 text-gray-200 hover:text-red-500 opacity-0 group-hover/size:opacity-100 transition-opacity p-1">
-                          <Trash2 size={16} />
+                      </div>
+                    </td>
+                    <td className="p-0 relative">
+                      <div className="flex items-center group/qty h-12">
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-full text-center px-2 bg-transparent text-gray-400 font-bold text-xs outline-none focus:bg-white/50"
+                          value={item.quantity || 1}
+                          onChange={(e) => updateCell(item.id, 'quantity', e.target.value)}
+                        />
+                        <button onClick={() => deleteRow(item.id)} className="absolute right-1 text-gray-200 hover:text-red-500 opacity-0 group-hover/qty:opacity-100 transition-opacity p-1">
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </td>
@@ -332,27 +384,24 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
         </table>
       </div>
 
-      {/* High Fidelity Status Bar */}
-      <div className="bg-gray-50/80 apple-blur px-8 py-4 border-t border-black/5 flex justify-between items-center text-[10px] font-bold text-gray-400 shrink-0">
-        <div className="flex gap-10 items-center uppercase tracking-[0.15em]">
-          <div className="flex items-center gap-3">
-            <span>Entry Count</span>
-            <span className="text-black bg-white px-3 py-1 rounded-lg shadow-sm border border-black/5 font-black">{data.filter(i => i.productTitle).length}</span>
+      {/* Status Bar */}
+      <div className="bg-gray-50/80 apple-blur px-8 py-3 border-t border-black/5 flex justify-between items-center text-[10px] font-bold text-gray-400 shrink-0">
+        {/* Left: order count + duplicate warning */}
+        <div className="flex gap-5 items-center uppercase tracking-[0.15em]">
+          <div className="flex items-center gap-2">
+            <span>Orders</span>
+            <span className="text-black bg-white px-2 py-0.5 rounded-md shadow-sm border border-black/5 font-black">{new Set(itemsWithEffectiveOrders.filter(i => i.productTitle).map(i => i.effectiveOrder)).size}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span>Order Groups</span>
-            <span className="text-black bg-white px-3 py-1 rounded-lg shadow-sm border border-black/5 font-black">{new Set(itemsWithEffectiveOrders.filter(i => i.productTitle).map(i => i.effectiveOrder)).size}</span>
-          </div>
-          {data.some(item => item.effectiveOrder && existingOrders.has(item.effectiveOrder.replace(/\D/g, ''))) && (
+          {itemsWithEffectiveOrders.some(item => item.effectiveOrder && existingOrders.has(item.effectiveOrder.replace(/\D/g, ''))) && (
             <div className="flex items-center gap-2 text-amber-600 animate-pulse">
               <AlertTriangle size={14} />
-              <span>Duplicate Orders Detected</span>
+              <span>Duplicate Orders</span>
             </div>
           )}
         </div>
         <div className="flex items-center gap-2 text-blue-500">
           <CheckCircle2 size={14} />
-          <span className="italic tracking-normal">Workbench state verified. Sync protocol ready.</span>
+          <span className="italic tracking-normal normal-case">Ready</span>
         </div>
       </div>
     </div>

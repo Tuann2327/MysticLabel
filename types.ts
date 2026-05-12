@@ -3,10 +3,11 @@ export type LayoutType = 'standard' | 'large';
 export type AppTab = 'grid' | 'import';
 
 export interface OrderItem {
-  id: string; // Internal unique ID for React keys
+  id: string;
   orderNumber: string;
   productTitle: string;
   size: string;
+  quantity: number;
 }
 
 export interface LabelConfig {
