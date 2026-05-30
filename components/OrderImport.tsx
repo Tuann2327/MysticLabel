@@ -147,8 +147,8 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
     setIsSyncing(true);
     const today = new Date().toLocaleDateString();
     const payload = validData.map((item, index) => {
-      const isDuplicateOrder = index > 0 && 
-                              item.effectiveOrder !== '' && 
+      const isDuplicateOrder = index > 0 &&
+                              item.effectiveOrder !== '' &&
                               validData[index-1].effectiveOrder === item.effectiveOrder;
       return {
         date: index === 0 ? today : '',
@@ -165,6 +165,28 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
     }).finally(() => {
       setTimeout(() => setIsSyncing(false), 2000);
     });
+
+    // Aggregate by title + normalised size so "1" and "1ml" collapse to the same key
+    const decrementMap = new Map<string, number>();
+    validData.forEach(item => {
+      if (!item.productTitle.trim() || !item.size.trim()) return;
+      const normSize = item.size.toLowerCase().replace(/ml$/i, '').trim();
+      const key = `${item.productTitle.trim()}|||${normSize}`;
+      decrementMap.set(key, (decrementMap.get(key) || 0) + (item.quantity || 1));
+    });
+    if (decrementMap.size > 0) {
+      const decrementData = Array.from(decrementMap.entries()).map(([key, quantity]) => {
+        const [name, size] = key.split('|||');
+        return { name, size, quantity }; // size is always the bare number e.g. "1", "5"
+      });
+      fetch(SYNC_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'decrementPrepared', data: decrementData })
+      });
+    }
+
     onSync();
   };
 

@@ -10,11 +10,10 @@ export const handler = async (event) => {
     };
   }
 
-  const apiPath = event.path.replace('/shopify-proxy', '');
+  const apiPath = event.path.replace('/.netlify/functions/shopify-proxy', '');
   const queryString = event.rawQuery
     || new URLSearchParams(event.queryStringParameters || {}).toString();
   const url = `https://${store}.myshopify.com${apiPath}${queryString ? '?' + queryString : ''}`;
-console.log('Fetching URL:', url); // ADD THIS
 
   try {
     const response = await fetch(url, {
