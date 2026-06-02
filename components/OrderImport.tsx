@@ -67,21 +67,23 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
       const minDate = new Date();
       minDate.setDate(minDate.getDate() - 3);
       const params = new URLSearchParams({
-        status: 'open',
+        status: 'any',
         created_at_min: minDate.toISOString(),
         limit: '250',
-        fields: 'id,order_number,name,created_at,line_items,fulfillments',
+        fields: 'id,order_number,name,created_at,cancelled_at,line_items,fulfillments',
       });
       const res = await fetch(`/shopify-proxy/admin/api/2024-10/orders.json?${params}`);
       if (!res.ok) throw new Error(`Shopify ${res.status}: ${await res.text().catch(() => res.statusText)}`);
       const { orders = [] } = await res.json();
 
+      const SKIP_STATUSES = new Set(['in_transit', 'out_for_delivery', 'delivered']);
       const newItems: OrderItem[] = [];
       orders.forEach((order: any) => {
-        const inTransit = (order.fulfillments ?? []).some(
-          (f: any) => f.shipment_status === 'in_transit'
+        if (order.cancelled_at) return;
+        const shouldSkip = (order.fulfillments ?? []).some(
+          (f: any) => SKIP_STATUSES.has(f.shipment_status)
         );
-        if (inTransit) return;
+        if (shouldSkip) return;
 
         order.line_items.forEach((li: any) => {
           const vt: string = li.variant_title ?? '';
