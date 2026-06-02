@@ -10,7 +10,7 @@ import SettingsModal from './components/SettingsModal';
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=0";
 const SETTINGS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=59548729";
 const PREPARED_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qf0W26PS1t4SRfga7eCbFBXHnQii4r3mtdNhiA37eEc/export?format=csv&gid=1350505644";
-const SETTINGS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwY_PI1Q89G8HtqHGYmvQQlDOxuGaMKOoaMgjiiGI39o3X16rDLVForSmE7jWR_omTj7Q/exec";
+const SETTINGS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwl-zt1bZxJM_XIyCmXYgUJnC502XaHSqMV8EESRJRpX5p1MoDIA_R2B7s3-Q060EDrYw/exec";
 const LOGO_URL = "https://mysticperfume.com/cdn/shop/files/MYSTIC_PERFUME_LOGO_600_x_300_px_38fd0169-c15a-4ba4-bff4-8bc2702702b7.png?v=1744734157&width=200";
 
 const DEFAULT_BRANDS = ["Amouage","BDK Parfums","Boadicea","Bond No.9","Bvlgari",

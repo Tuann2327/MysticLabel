@@ -22,7 +22,7 @@ interface ModalState {
   type: 'danger' | 'warning' | 'success';
 }
 
-const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwY_PI1Q89G8HtqHGYmvQQlDOxuGaMKOoaMgjiiGI39o3X16rDLVForSmE7jWR_omTj7Q/exec";
+const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwl-zt1bZxJM_XIyCmXYgUJnC502XaHSqMV8EESRJRpX5p1MoDIA_R2B7s3-Q060EDrYw/exec";
 
 const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyncing, setIsSyncing, existingOrders, searchTerm }) => {
   const [isAutoFetching, setIsAutoFetching] = useState(false);
@@ -67,11 +67,10 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
       const minDate = new Date();
       minDate.setDate(minDate.getDate() - 3);
       const params = new URLSearchParams({
-        fulfillment_status: 'unfulfilled',
         status: 'open',
         created_at_min: minDate.toISOString(),
         limit: '250',
-        fields: 'id,order_number,name,created_at,line_items',
+        fields: 'id,order_number,name,created_at,line_items,fulfillments',
       });
       const res = await fetch(`/shopify-proxy/admin/api/2024-10/orders.json?${params}`);
       if (!res.ok) throw new Error(`Shopify ${res.status}: ${await res.text().catch(() => res.statusText)}`);
@@ -79,6 +78,11 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
 
       const newItems: OrderItem[] = [];
       orders.forEach((order: any) => {
+        const inTransit = (order.fulfillments ?? []).some(
+          (f: any) => f.shipment_status === 'in_transit'
+        );
+        if (inTransit) return;
+
         order.line_items.forEach((li: any) => {
           const vt: string = li.variant_title ?? '';
           if (!vt.toLowerCase().includes('sample')) return;
@@ -177,14 +181,17 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
     if (decrementMap.size > 0) {
       const decrementData = Array.from(decrementMap.entries()).map(([key, quantity]) => {
         const [name, size] = key.split('|||');
-        return { name, size, quantity }; // size is always the bare number e.g. "1", "5"
+        return { name, size, quantity };
       });
+      console.log('[decrementPrepared] payload →', JSON.stringify(decrementData, null, 2));
       fetch(SYNC_WEBHOOK_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'decrementPrepared', data: decrementData })
       });
+    } else {
+      console.log('[decrementPrepared] skipped — no items with both title and size');
     }
 
     onSync();
