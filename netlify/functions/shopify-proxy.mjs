@@ -1,6 +1,6 @@
 export const handler = async (event) => {
-  const store = process.env.SHOPIFY_STORE;
-  const token = process.env.SHOPIFY_TOKEN;
+  const store = process.env.SHOPIFY_STORE; //
+  const token = process.env.SHOPIFY_TOKEN; //
 
   if (!store || !token) {
     return {
@@ -10,7 +10,9 @@ export const handler = async (event) => {
     };
   }
 
-  const apiPath = event.path.replace('/.netlify/functions/shopify-proxy', '');
+  const apiPath = event.path
+    .replace(/^\/.netlify\/functions\/shopify-proxy/, '')
+    .replace(/^\/shopify-proxy/, '');
   const queryString = event.rawQuery
     || new URLSearchParams(event.queryStringParameters || {}).toString();
   const url = `https://${store}.myshopify.com${apiPath}${queryString ? '?' + queryString : ''}`;
