@@ -315,9 +315,11 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
 
       {/* High Fidelity Control Bar */}
       <div className="flex flex-col md:flex-row items-center justify-between p-4 md:p-5 bg-white/80 apple-blur border-b border-black/5 shrink-0 gap-4">
-        {/* Source toolbar — every way of getting rows onto the workbench */}
-        <div className="flex items-center gap-1 w-full md:w-auto overflow-x-auto no-scrollbar pb-2 md:pb-0">
-          <div className="flex items-center gap-1 bg-black/[0.04] rounded-xl p-1">
+        {/* Source toolbar — every way of getting rows onto the workbench.
+            flex-1 + min-w-0 lets it use all the room up to the Sync button;
+            shrink-0 on the children means they scroll rather than squash. */}
+        <div className="flex items-center gap-1 w-full md:flex-1 min-w-0 overflow-x-auto no-scrollbar pb-2 md:pb-0">
+          <div className="flex items-center gap-1 bg-black/[0.04] rounded-xl p-1 shrink-0">
             <label className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 px-3 md:px-3.5 py-2 rounded-lg cursor-pointer transition-all font-bold text-[10px] md:text-[11px] shadow-sm border border-black/5 active:scale-95 whitespace-nowrap">
               <Upload size={14} className="text-gray-400" />
               <span className="hidden sm:inline">Import CSV / TXT</span><span className="sm:hidden">CSV</span>
@@ -355,14 +357,14 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
             </button>
           </div>
 
-          <div className="h-6 w-px bg-black/5 mx-1.5 hidden md:block" />
+          <div className="h-6 w-px bg-black/5 mx-1.5 hidden md:block shrink-0" />
 
-          <button onClick={clearAll} className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-3 py-2 rounded-lg transition-all font-bold text-[10px] md:text-[11px] hover:bg-red-50 active:scale-95 whitespace-nowrap">
+          <button onClick={clearAll} className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-3 py-2 rounded-lg transition-all font-bold text-[10px] md:text-[11px] hover:bg-red-50 active:scale-95 whitespace-nowrap shrink-0">
             <Eraser size={14} /> <span className="hidden sm:inline">Clear Workbench</span><span className="sm:hidden">Clear</span>
           </button>
         </div>
-        
-        <div className="flex items-center gap-3 md:gap-4 w-full md:max-w-2xl justify-end">
+
+        <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
           <button
             onClick={handleSync}
             disabled={isSyncing || data.filter(i => i.productTitle).length === 0}
