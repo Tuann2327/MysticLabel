@@ -43,6 +43,7 @@ const App: React.FC = () => {
   const [layoutType, setLayoutType] = useState<LayoutType>('standard');
   const [selectedSize, setSelectedSize] = useState<string>('1ml');
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set<number>());
+  const [orderByBrand, setOrderByBrand] = useState(true);
   const [mappedData, setMappedData] = useState<Record<number, string>>({});
   const [importedItems, setImportedItems] = useState<OrderItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -82,6 +83,28 @@ const App: React.FC = () => {
     }
     return result;
   }, [brands, wordsToRemove, altNameDict]);
+
+  // Longest match wins, so "Yves Saint Laurent" beats "YSL" on a title holding both.
+  const detectBrand = useCallback((rawTitle: string): string => {
+    const lower = (rawTitle || '').toLowerCase();
+    let best = '';
+    brands.forEach(b => {
+      if (b.length > best.length && lower.includes(b.toLowerCase())) best = b;
+    });
+    return best;
+  }, [brands]);
+
+  // Brand A→Z, then fragrance name. Titles with no recognised brand sort last,
+  // mirroring how the picking list drops them into "Other".
+  const compareByBrand = useCallback((a: string, b: string): number => {
+    const brandA = detectBrand(a);
+    const brandB = detectBrand(b);
+    if (brandA && !brandB) return -1;
+    if (!brandA && brandB) return 1;
+    const byBrand = brandA.localeCompare(brandB);
+    if (byBrand !== 0) return byBrand;
+    return preprocessText(a).localeCompare(preprocessText(b));
+  }, [detectBrand, preprocessText]);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -233,6 +256,14 @@ const App: React.FC = () => {
           .filter(entry => entry.size === numericTarget)
           .map(entry => entry.name);
       }
+
+      // Lay labels out in the same order the picking list reads: brand A→Z,
+      // then fragrance name, so the printed sheet matches the sheet you pick from.
+      // Equal titles compare equal, so multi-quantity labels stay adjacent.
+      if (orderByBrand) {
+        filteredNames = [...filteredNames].sort(compareByBrand);
+      }
+
       if (filteredNames.length === 0) {
         alert(`No items found for size ${targetSize}. Check your imported items.`);
         setIsLoading(false);
@@ -492,16 +523,6 @@ const App: React.FC = () => {
     const check = (name: string) => preparedMap.get(name.toLowerCase())?.has(sizeNorm) ?? false;
     return check(preprocessText(rawTitle)) || check(rawTitle);
   }, [preprocessText]);
-
-  // Longest match wins, so "Yves Saint Laurent" beats "YSL" on a title holding both.
-  const detectBrand = useCallback((rawTitle: string): string => {
-    const lower = (rawTitle || '').toLowerCase();
-    let best = '';
-    brands.forEach(b => {
-      if (b.length > best.length && lower.includes(b.toLowerCase())) best = b;
-    });
-    return best;
-  }, [brands]);
 
   // Rows with a blank order number belong to the order above them, matching how
   // OrderImport displays them. Without this the shared list's order grouping
@@ -833,6 +854,30 @@ const App: React.FC = () => {
                         <option value="large">5ml / 10ml — Large (3×10)</option>
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={12} />
+                    </div>
+
+                    {/* Applies on the next map — existing cells keep their order */}
+                    <div className="flex items-center justify-between gap-3 mt-3 pl-0.5">
+                      <label
+                        htmlFor="order-by-brand"
+                        className="text-[11px] font-bold text-gray-600 leading-tight cursor-pointer select-none"
+                      >
+                        Order by brand name
+                      </label>
+                      <button
+                        id="order-by-brand"
+                        role="switch"
+                        aria-checked={orderByBrand}
+                        onClick={() => setOrderByBrand(v => !v)}
+                        title={orderByBrand
+                          ? 'Labels are laid out brand A→Z, like the picking list'
+                          : 'Labels follow the order rows were imported'}
+                        className={`relative shrink-0 w-[38px] h-[22px] rounded-full transition-colors duration-200 ${orderByBrand ? 'bg-blue-600' : 'bg-gray-300'}`}
+                      >
+                        <span
+                          className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm transition-transform duration-200 ${orderByBrand ? 'translate-x-[16px]' : 'translate-x-0'}`}
+                        />
+                      </button>
                     </div>
                   </section>
 

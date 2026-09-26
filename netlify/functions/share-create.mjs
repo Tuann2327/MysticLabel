@@ -1,4 +1,5 @@
 import { shareStore, newId, json, TTL_MS } from '../lib/shares.mjs';
+import { shopifyEnv, lookupImages } from '../lib/shopify.mjs';
 
 export const config = { path: '/api/share-create', method: ['POST'] };
 
@@ -38,6 +39,22 @@ export default async (req) => {
   })).filter((it) => it.name || it.title);
 
   if (items.length === 0) return json({ error: 'no_items' }, 400);
+
+  // Resolve row thumbnails once, here, so the phone renders photos straight from
+  // the payload instead of firing a request per row. Best effort: a list without
+  // photos is still a usable list.
+  const env = shopifyEnv();
+  if (env) {
+    try {
+      const images = await lookupImages(env.store, env.token, items.map((it) => it.title));
+      items.forEach((it) => {
+        const url = images.get(it.title);
+        if (url) it.image = url;
+      });
+    } catch {
+      /* leave items without images */
+    }
+  }
 
   const now = Date.now();
   const share = {

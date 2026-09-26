@@ -148,16 +148,33 @@
   .body { flex: 1; min-width: 0; padding: 12px 4px 12px 0; text-align: left; background: none; border: 0; font-family: inherit; cursor: pointer; color: inherit; }
   .name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.25; }
   .row[data-state="1"] .name { text-decoration: line-through; color: var(--text-dim); }
-  .sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .brandline { color: var(--text-faint); }
+  .sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+  .brandline { color: var(--text-faint); width: 100%; }
+
+  /* Size tags: one row per product, one tag per size it was ordered in */
   .chip {
     display: inline-flex; align-items: center; gap: 3px;
-    background: var(--surface-2); border-radius: 5px; padding: 1px 6px;
+    background: var(--surface-2); border-radius: 6px; padding: 2px 7px;
     font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .chip.prepped { background: var(--green-bg); color: var(--green); }
-  .qty { font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .chip .x { opacity: .55; font-weight: 800; }
   .disclose { flex: 0 0 auto; display: flex; align-items: center; padding-right: 14px; color: var(--text-faint); }
+
+  /* Product photo. Shopify perfume shots sit on white, so multiply drops the
+     background into the row and leaves just the bottle. Dark mode can't
+     multiply against a dark row, so it falls back to plain transparency. */
+  .thumb {
+    flex: 0 0 auto; width: 46px; height: 46px; align-self: center;
+    margin-right: 6px; object-fit: contain;
+    mix-blend-mode: multiply; opacity: .92; pointer-events: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .thumb { mix-blend-mode: normal; opacity: .62; }
+  }
+  :root[data-theme="dark"] .thumb { mix-blend-mode: normal; opacity: .62; }
+  .row[data-state="1"] .thumb { opacity: .4; }
 
   /* ---------- states ---------- */
   .state { text-align: center; padding: 64px 24px; color: var(--text-dim); }
@@ -189,8 +206,22 @@
     .sheet { left: 50%; right: auto; width: 520px; transform: translate(-50%, 101%); }
     .sheet.open { transform: translate(-50%, 0); }
   }
-  .grabber { width: 36px; height: 5px; background: var(--text-faint); opacity: .4; border-radius: 3px; margin: 8px auto 4px; }
+  /* While a finger is on the sheet, position is driven by JS, not the transition */
+  .sheet.dragging { transition: none; }
+
+  .grab-zone { padding: 6px 0 2px; cursor: grab; touch-action: none; }
+  .grab-zone:active { cursor: grabbing; }
+  .grabber { width: 36px; height: 5px; background: var(--text-faint); opacity: .4; border-radius: 3px; margin: 2px auto; }
+  .sheet-close {
+    position: absolute; top: 14px; right: 14px; z-index: 2;
+    width: 30px; height: 30px; border: 0; border-radius: 50%;
+    background: var(--surface-2); color: var(--text-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 17px; line-height: 1; padding: 0;
+  }
+  .sheet-close:active { transform: scale(.92); }
   .sheet-pad { padding: 8px 20px 0; }
+  .sheet h2 { padding-right: 34px; }
   .sheet h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; line-height: 1.2; }
   .sheet-brand { font-size: 13px; color: var(--text-dim); margin: 0 0 16px; }
   .hero {
@@ -252,7 +283,8 @@
 
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
-  <div class="grabber"></div>
+  <button class="sheet-close" id="sheet-close" aria-label="Close">&times;</button>
+  <div class="grab-zone" id="grab-zone"><div class="grabber"></div></div>
   <div class="sheet-pad" id="sheet-body"></div>
 </div>
 
@@ -341,7 +373,8 @@
           name: it.name || it.title || '(untitled)',
           size: it.size == null ? '' : String(it.size),
           qty: Number(it.qty) > 0 ? Number(it.qty) : 1,
-          prepared: !!it.prepared
+          prepared: !!it.prepared,
+          image: it.image || null
         };
       });
       if (!rows.length) {
@@ -378,61 +411,79 @@
     });
   }
 
-  function groupByBrand(list) {
+  /* One row per product: every size it was ordered in becomes a tag on that
+     row, so "Layton 1ml" and "Layton 5ml" are a single bottle to fetch. */
+  function mergeByProduct(list) {
     var map = {};
+    var order = [];
     list.forEach(function (r) {
-      var b = r.brand || 'Other';
-      if (!map[b]) map[b] = {};
-      var key = r.name + '|||' + r.size;
-      if (!map[b][key]) {
-        map[b][key] = {
-          name: r.name, brand: r.brand, title: r.title, size: r.size,
-          qty: 0, prepared: false, orders: [], keys: []
+      var key = r.name.toLowerCase();
+      if (!map[key]) {
+        map[key] = {
+          name: r.name, brand: r.brand, title: r.title, image: r.image,
+          sizes: [], orders: [], keys: []
         };
+        order.push(key);
       }
-      var slot = map[b][key];
+      var item = map[key];
+      if (!item.image && r.image) item.image = r.image;
+      item.keys.push(r.k);
+      if (r.order && item.orders.indexOf(r.order) === -1) item.orders.push(r.order);
+
+      var sizeKey = String(r.size).toLowerCase().replace(/ml$/, '').trim();
+      var slot = null;
+      for (var i = 0; i < item.sizes.length; i++) {
+        if (item.sizes[i].key === sizeKey) { slot = item.sizes[i]; break; }
+      }
+      if (!slot) {
+        slot = { key: sizeKey, size: r.size, qty: 0, prepared: false };
+        item.sizes.push(slot);
+      }
       slot.qty += r.qty;
       slot.prepared = slot.prepared || r.prepared;
-      slot.keys.push(r.k);
-      if (r.order && slot.orders.indexOf(r.order) === -1) slot.orders.push(r.order);
     });
-    return Object.keys(map).sort(function (a, b) {
+
+    return order.map(function (k) {
+      var item = map[k];
+      item.sizes.sort(function (a, b) {
+        return (parseFloat(a.key) || 0) - (parseFloat(b.key) || 0);
+      });
+      item.qty = item.sizes.reduce(function (n, s) { return n + s.qty; }, 0);
+      return item;
+    }).sort(function (x, y) { return x.name.localeCompare(y.name); });
+  }
+
+  function groupByBrand(list) {
+    var byBrand = {};
+    list.forEach(function (r) {
+      var b = r.brand || 'Other';
+      if (!byBrand[b]) byBrand[b] = [];
+      byBrand[b].push(r);
+    });
+    return Object.keys(byBrand).sort(function (a, b) {
       if (a === 'Other') return 1;
       if (b === 'Other') return -1;
       return a.localeCompare(b);
     }).map(function (b) {
-      return {
-        label: b,
-        items: Object.keys(map[b]).map(function (k) { return map[b][k]; })
-          .sort(function (x, y) {
-            return x.name.localeCompare(y.name)
-                || (parseFloat(x.size) || 0) - (parseFloat(y.size) || 0);
-          })
-      };
+      return { label: b, items: mergeByProduct(byBrand[b]) };
     });
   }
 
   function groupByOrder(list) {
-    var map = {};
+    var byOrder = {};
     list.forEach(function (r) {
       var o = r.order || 'No order';
-      if (!map[o]) map[o] = [];
-      map[o].push({
-        name: r.name, brand: r.brand, title: r.title, size: r.size,
-        qty: r.qty, prepared: r.prepared, orders: [], keys: [r.k]
-      });
+      if (!byOrder[o]) byOrder[o] = [];
+      byOrder[o].push(r);
     });
-    return Object.keys(map).sort(function (a, b) {
+    return Object.keys(byOrder).sort(function (a, b) {
       if (a === 'No order') return 1;
       if (b === 'No order') return -1;
       return (parseInt(b, 10) || 0) - (parseInt(a, 10) || 0);
     }).map(function (o) {
       return {
         label: o === 'No order' ? 'No order' : '#' + o,
-        items: map[o].sort(function (x, y) {
-          return x.name.localeCompare(y.name)
-              || (parseFloat(x.size) || 0) - (parseFloat(y.size) || 0);
-        })
+        items: mergeByProduct(byOrder[o])
       };
     });
   }
@@ -491,6 +542,7 @@
       g.items.forEach(function (item) {
         var st = stateOf(item);
         var sub = [];
+
         if (sortMode === 'brand' && item.orders.length) {
           sub.push('<span class="brandline">'
             + item.orders.slice(0, 4).map(function (o) { return '#' + esc(o); }).join(' ')
@@ -500,9 +552,14 @@
         if (sortMode === 'order' && item.brand) {
           sub.push('<span class="brandline">' + esc(item.brand) + '</span>');
         }
-        sub.push('<span class="chip' + (item.prepared ? ' prepped' : '') + '">'
-          + esc(sizeLabel(item.size)) + (item.prepared ? ' ✓ prepped' : '') + '</span>');
-        if (item.qty > 1) sub.push('<span class="qty">×' + item.qty + '</span>');
+
+        item.sizes.forEach(function (s) {
+          sub.push('<span class="chip' + (s.prepared ? ' prepped' : '') + '">'
+            + esc(sizeLabel(s.size))
+            + (s.qty > 1 ? ' <span class="x">×' + s.qty + '</span>' : '')
+            + (s.prepared ? ' ✓' : '')
+            + '</span>');
+        });
 
         html += '<div class="row" data-state="' + st + '">'
               + '<button class="mark" data-act="mark" aria-label="Mark ' + esc(item.name) + '">'
@@ -512,6 +569,9 @@
               +   '<div class="name">' + esc(item.name) + '</div>'
               +   '<div class="sub">' + sub.join('') + '</div>'
               + '</button>'
+              + (item.image
+                  ? '<img class="thumb" src="' + esc(item.image) + '" alt="" loading="lazy" decoding="async">'
+                  : '')
               + '<span class="disclose"><svg width="7" height="12" viewBox="0 0 7 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l5 5-5 5"/></svg></span>'
               + '</div>';
       });
@@ -548,13 +608,88 @@
   var sheetCache = {};
 
   function closeSheet() {
+    el.sheet.classList.remove('dragging');
+    el.sheet.style.transform = '';
     el.sheet.classList.remove('open');
     el.scrim.classList.remove('open');
   }
   el.scrim.addEventListener('click', closeSheet);
+  document.getElementById('sheet-close').addEventListener('click', closeSheet);
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeSheet();
   });
+
+  /* Swipe down to dismiss. Only takes over when the sheet is already scrolled
+     to the top, so dragging inside a long variant table still scrolls it. */
+  (function enableSwipeToClose() {
+    var startY = 0, startT = 0, delta = 0, dragging = false;
+    var CLOSE_PX = 110;      // far enough down
+    var FLICK_VELOCITY = .55; // or fast enough
+
+    function grabbedFromHandle(target) {
+      return !!(target.closest && target.closest('#grab-zone'));
+    }
+
+    function onStart(y, target) {
+      if (!el.sheet.classList.contains('open')) return;
+      if (el.sheet.scrollTop > 0 && !grabbedFromHandle(target)) return;
+      startY = y;
+      startT = Date.now();
+      delta = 0;
+      dragging = true;
+      el.sheet.classList.add('dragging');
+    }
+
+    function onMove(y, e) {
+      if (!dragging) return;
+      delta = y - startY;
+      if (delta < 0) {
+        // Upward past the top: resist rather than lifting the sheet off-screen
+        delta = delta / 4;
+      } else if (e && e.cancelable) {
+        e.preventDefault();
+      }
+      var base = window.innerWidth >= 560 ? 'translate(-50%, ' + delta + 'px)' : 'translateY(' + delta + 'px)';
+      el.sheet.style.transform = base;
+    }
+
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      el.sheet.classList.remove('dragging');
+      var velocity = delta / Math.max(1, Date.now() - startT);
+      if (delta > CLOSE_PX || velocity > FLICK_VELOCITY) {
+        closeSheet();
+      } else {
+        el.sheet.style.transform = '';
+      }
+    }
+
+    el.sheet.addEventListener('touchstart', function (e) {
+      onStart(e.touches[0].clientY, e.target);
+    }, { passive: true });
+    el.sheet.addEventListener('touchmove', function (e) {
+      onMove(e.touches[0].clientY, e);
+    }, { passive: false });
+    el.sheet.addEventListener('touchend', onEnd);
+    el.sheet.addEventListener('touchcancel', onEnd);
+
+    // Mouse drag on the handle, for desktop
+    var gz = document.getElementById('grab-zone');
+    gz.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'touch') return;
+      onStart(e.clientY, e.target);
+      gz.setPointerCapture(e.pointerId);
+    });
+    gz.addEventListener('pointermove', function (e) {
+      if (e.pointerType === 'touch') return;
+      onMove(e.clientY, null);
+    });
+    gz.addEventListener('pointerup', function (e) {
+      if (e.pointerType === 'touch') return;
+      onEnd();
+    });
+  })();
 
   function stockClass(n) { return n > 5 ? 'stock-ok' : n > 0 ? 'stock-low' : 'stock-out'; }
 
@@ -564,6 +699,7 @@
   }
 
   function openInfo(item) {
+    el.sheet.style.transform = '';
     el.sheet.classList.add('open');
     el.scrim.classList.add('open');
     el.sheet.scrollTop = 0;
@@ -595,8 +731,10 @@
       return;
     }
 
-    var need = [p.vendor, sizeLabel(item.size) + ' needed', item.qty > 1 ? '×' + item.qty : '']
-      .filter(Boolean).join(' · ');
+    var needed = item.sizes.map(function (s) {
+      return sizeLabel(s.size) + (s.qty > 1 ? ' ×' + s.qty : '');
+    }).join(', ');
+    var need = [p.vendor, needed ? 'Need ' + needed : ''].filter(Boolean).join(' · ');
 
     var h = '<h2 id="sheet-title">' + esc(p.title) + '</h2>'
           + '<p class="sheet-brand">' + esc(need) + '</p>';
