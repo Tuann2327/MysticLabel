@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex, nofollow">
+<title>Picking List</title>
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --surface: #ffffff;
+    --surface-2: #f2f2f5;
+    --text: #1d1d1f;
+    --text-dim: #6e6e73;
+    --text-faint: #a1a1a6;
+    --border: rgba(0,0,0,0.09);
+    --blue: #007aff;
+    --green: #30a14e;
+    --green-bg: rgba(48,161,78,0.10);
+    --amber: #b8860b;
+    --amber-bg: rgba(255,159,10,0.14);
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 6px 20px rgba(0,0,0,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000;
+      --surface: #1c1c1e;
+      --surface-2: #2c2c2e;
+      --text: #f5f5f7;
+      --text-dim: #98989d;
+      --text-faint: #6e6e73;
+      --border: rgba(255,255,255,0.12);
+      --blue: #0a84ff;
+      --green: #32d74b;
+      --green-bg: rgba(50,215,75,0.14);
+      --amber: #ffd60a;
+      --amber-bg: rgba(255,214,10,0.14);
+      --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 6px 20px rgba(0,0,0,0.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-2: #2c2c2e;
+    --text: #f5f5f7;
+    --text-dim: #98989d;
+    --text-faint: #6e6e73;
+    --border: rgba(255,255,255,0.12);
+    --blue: #0a84ff;
+    --green: #32d74b;
+    --green-bg: rgba(50,215,75,0.14);
+    --amber: #ffd60a;
+    --amber-bg: rgba(255,214,10,0.14);
+    --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 6px 20px rgba(0,0,0,0.3);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-size: 16px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px 96px; }
+
+  /* ---------- header ---------- */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding-top: env(safe-area-inset-top);
+  }
+  @supports (backdrop-filter: blur(20px)) or (-webkit-backdrop-filter: blur(20px)) {
+    header {
+      background: color-mix(in srgb, var(--bg) 82%, transparent);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+    }
+  }
+  .head-inner { max-width: 640px; margin: 0 auto; padding: 12px 16px 10px; }
+  .title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+  .meta { font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .progress-track { height: 4px; background: var(--surface-2); border-radius: 2px; margin: 10px 0 0; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width .25s ease; width: 0; }
+  .progress-label { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .controls { display: flex; gap: 8px; margin-top: 10px; }
+  .search-box { position: relative; flex: 1; min-width: 0; }
+  .search-box > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+  input[type="search"] {
+    width: 100%; appearance: none; -webkit-appearance: none;
+    background: var(--surface-2); border: 1px solid transparent; color: var(--text);
+    border-radius: 10px; padding: 9px 32px 9px 32px; font-size: 15px; font-family: inherit;
+    outline: none; transition: border-color .15s;
+  }
+  input[type="search"]:focus { border-color: var(--blue); }
+  input[type="search"]::-webkit-search-cancel-button { display: none; }
+  .clear-search {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: none; border: 0; color: var(--text-faint); font-size: 18px;
+    width: 24px; height: 24px; cursor: pointer; display: none; line-height: 1; padding: 0;
+  }
+  .clear-search.on { display: block; }
+
+  .seg { display: flex; background: var(--surface-2); border-radius: 10px; padding: 2px; flex: 0 0 auto; }
+  .seg button {
+    appearance: none; border: 0; background: none; color: var(--text-dim);
+    font-family: inherit; font-size: 12px; font-weight: 600; padding: 7px 11px;
+    border-radius: 8px; cursor: pointer; white-space: nowrap; transition: all .15s;
+  }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+  /* ---------- groups ---------- */
+  .group-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 4px 8px; gap: 8px;
+  }
+  .group-name { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); }
+  .group-count { font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+
+  /* ---------- rows ---------- */
+  .row { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: 0; }
+  .row[data-state="1"] { background: var(--green-bg); }
+  .row[data-state="2"] { background: var(--amber-bg); }
+
+  .mark {
+    flex: 0 0 auto; width: 52px; border: 0; background: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-family: inherit;
+  }
+  .mark span {
+    width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--text-faint);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700; color: transparent; transition: all .15s;
+  }
+  .row[data-state="1"] .mark span { background: var(--green); border-color: var(--green); color: #fff; }
+  .row[data-state="2"] .mark span { background: var(--amber); border-color: var(--amber); color: #000; }
+
+  .body { flex: 1; min-width: 0; padding: 12px 4px 12px 0; text-align: left; background: none; border: 0; font-family: inherit; cursor: pointer; color: inherit; }
+  .name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.25; }
+  .row[data-state="1"] .name { text-decoration: line-through; color: var(--text-dim); }
+  .sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .brandline { color: var(--text-faint); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: var(--surface-2); border-radius: 5px; padding: 1px 6px;
+    font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .chip.prepped { background: var(--green-bg); color: var(--green); }
+  .qty { font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .disclose { flex: 0 0 auto; display: flex; align-items: center; padding-right: 14px; color: var(--text-faint); }
+
+  /* ---------- states ---------- */
+  .state { text-align: center; padding: 64px 24px; color: var(--text-dim); }
+  .state h2 { font-size: 17px; font-weight: 600; margin: 0 0 6px; color: var(--text); }
+  .state p { font-size: 14px; margin: 0; line-height: 1.5; }
+  .spinner {
+    width: 26px; height: 26px; margin: 0 auto 18px;
+    border: 2.5px solid var(--surface-2); border-top-color: var(--blue);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- product sheet ---------- */
+  .scrim {
+    position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.45);
+    opacity: 0; pointer-events: none; transition: opacity .25s;
+  }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .sheet {
+    position: fixed; z-index: 41; left: 0; right: 0; bottom: 0;
+    background: var(--surface); border-radius: 18px 18px 0 0;
+    max-height: 86vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    transform: translateY(101%); transition: transform .3s cubic-bezier(.32,.72,0,1);
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 40px rgba(0,0,0,.25);
+  }
+  .sheet.open { transform: translateY(0); }
+  @media (min-width: 560px) {
+    .sheet { left: 50%; right: auto; width: 520px; transform: translate(-50%, 101%); }
+    .sheet.open { transform: translate(-50%, 0); }
+  }
+  .grabber { width: 36px; height: 5px; background: var(--text-faint); opacity: .4; border-radius: 3px; margin: 8px auto 4px; }
+  .sheet-pad { padding: 8px 20px 0; }
+  .sheet h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; line-height: 1.2; }
+  .sheet-brand { font-size: 13px; color: var(--text-dim); margin: 0 0 16px; }
+  .hero {
+    width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--surface-2);
+    border-radius: 12px; margin: 4px 0 16px; display: block;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint); font-weight: 700; padding: 0 0 7px; }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td { padding: 9px 0; border-top: 1px solid var(--border); }
+  td.vname { font-weight: 600; }
+  .stock-ok { color: var(--green); font-weight: 700; }
+  .stock-low { color: var(--amber); font-weight: 700; }
+  .stock-out { color: var(--text-faint); font-weight: 700; }
+  .admin-link {
+    display: block; text-align: center; margin: 20px 0 0; padding: 13px;
+    background: var(--surface-2); border-radius: 11px; color: var(--blue);
+    text-decoration: none; font-size: 15px; font-weight: 600;
+  }
+  .sheet-err { font-size: 14px; color: var(--text-dim); line-height: 1.5; padding: 8px 0 0; }
+  .legend { display: flex; gap: 14px; justify-content: center; padding: 26px 0 0; font-size: 11px; color: var(--text-faint); flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-inner">
+    <div class="title-row">
+      <h1 id="doc-title">Picking List</h1>
+      <span class="meta" id="doc-meta"></span>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="bar"></div></div>
+    <div class="progress-label" id="bar-label">Loading&hellip;</div>
+    <div class="controls" id="controls" hidden>
+      <div class="search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="q" placeholder="Search name, brand, order&hellip;" autocomplete="off" enterkeyhint="search">
+        <button class="clear-search" id="q-clear" aria-label="Clear search">&times;</button>
+      </div>
+      <div class="seg" role="group" aria-label="Sort order">
+        <button id="sort-brand" aria-pressed="true">Brand</button>
+        <button id="sort-order" aria-pressed="false">Order</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="out">
+    <div class="state"><div class="spinner"></div><p>Loading list&hellip;</p></div>
+  </div>
+  <div class="legend" id="legend" hidden>
+    <span><i style="background:var(--green)"></i>Found</span>
+    <span><i style="background:var(--amber)"></i>Still looking</span>
+    <span><i style="background:var(--green-bg);border:1px solid var(--green)"></i>Already prepared</span>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+  <div class="grabber"></div>
+  <div class="sheet-pad" id="sheet-body"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var shareId = (location.pathname.match(/\/l\/([A-Za-z0-9_-]+)/) || [])[1]
+             || new URLSearchParams(location.search).get('id')
+             || location.hash.replace(/^#/, '');
+
+  var rows = [];
+  var sortMode = localStorage.getItem('ml.sort') === 'order' ? 'order' : 'brand';
+  var query = '';
+  var marks = {};
+  var MARK_KEY = 'ml.marks.' + shareId;
+
+  try { marks = JSON.parse(localStorage.getItem(MARK_KEY) || '{}') || {}; } catch (e) { marks = {}; }
+  function persistMarks() {
+    try { localStorage.setItem(MARK_KEY, JSON.stringify(marks)); } catch (e) {}
+  }
+
+  var el = {
+    out: document.getElementById('out'),
+    title: document.getElementById('doc-title'),
+    meta: document.getElementById('doc-meta'),
+    bar: document.getElementById('bar'),
+    barLabel: document.getElementById('bar-label'),
+    controls: document.getElementById('controls'),
+    legend: document.getElementById('legend'),
+    q: document.getElementById('q'),
+    qClear: document.getElementById('q-clear'),
+    sortBrand: document.getElementById('sort-brand'),
+    sortOrder: document.getElementById('sort-order'),
+    scrim: document.getElementById('scrim'),
+    sheet: document.getElementById('sheet'),
+    sheetBody: document.getElementById('sheet-body')
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function sizeLabel(s) {
+    var t = String(s == null ? '' : s).toLowerCase().replace(/ml$/, '').trim();
+    return t ? t + 'ml' : 'no size';
+  }
+  function fmtExpiry(iso) {
+    var ms = new Date(iso).getTime() - Date.now();
+    if (isNaN(ms) || ms <= 0) return 'expired';
+    var h = Math.floor(ms / 3600000);
+    if (h >= 1) return 'expires in ' + h + 'h';
+    return 'expires in ' + Math.max(1, Math.round(ms / 60000)) + 'm';
+  }
+
+  function showState(heading, msg) {
+    el.out.innerHTML = '<div class="state"><h2>' + esc(heading) + '</h2><p>' + esc(msg) + '</p></div>';
+    el.barLabel.textContent = '';
+    el.bar.style.width = '0';
+  }
+
+  /* ---------- load ---------- */
+  if (!shareId) {
+    showState('No list specified', 'This link is missing its list ID. Ask for a fresh link.');
+    return;
+  }
+
+  fetch('/api/share?id=' + encodeURIComponent(shareId))
+    .then(function (r) {
+      if (r.status === 404 || r.status === 410) {
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          throw new Error(b.error === 'expired' ? 'EXPIRED' : 'GONE');
+        });
+      }
+      if (!r.ok) throw new Error('Could not load the list (error ' + r.status + '). Check your connection and reload.');
+      return r.json();
+    })
+    .then(function (payload) {
+      rows = (payload.items || []).map(function (it, i) {
+        return {
+          k: it.k || String(i),
+          order: it.order == null ? '' : String(it.order),
+          title: it.title || '',
+          brand: it.brand || '',
+          name: it.name || it.title || '(untitled)',
+          size: it.size == null ? '' : String(it.size),
+          qty: Number(it.qty) > 0 ? Number(it.qty) : 1,
+          prepared: !!it.prepared
+        };
+      });
+      if (!rows.length) {
+        showState('Nothing on this list', 'The list was shared with no items on it.');
+        return;
+      }
+      el.controls.hidden = false;
+      el.legend.hidden = false;
+      if (payload.label) el.title.textContent = payload.label;
+      el.meta.textContent = fmtExpiry(payload.expiresAt);
+      applySort();
+      render();
+    })
+    .catch(function (err) {
+      if (err.message === 'EXPIRED') {
+        showState('This list has expired', 'Picking lists are only good for 24 hours. Ask for a fresh link.');
+      } else if (err.message === 'GONE') {
+        showState('List not found', 'This list no longer exists. Links are deleted 24 hours after they are created.');
+      } else {
+        showState('Could not open list', err.message);
+      }
+    });
+
+  /* ---------- filter + group ---------- */
+  function visible() {
+    if (!query) return rows;
+    var q = query.toLowerCase();
+    return rows.filter(function (r) {
+      return r.name.toLowerCase().indexOf(q) > -1
+          || r.brand.toLowerCase().indexOf(q) > -1
+          || r.title.toLowerCase().indexOf(q) > -1
+          || r.order.indexOf(q) > -1
+          || sizeLabel(r.size).indexOf(q) > -1;
+    });
+  }
+
+  function groupByBrand(list) {
+    var map = {};
+    list.forEach(function (r) {
+      var b = r.brand || 'Other';
+      if (!map[b]) map[b] = {};
+      var key = r.name + '|||' + r.size;
+      if (!map[b][key]) {
+        map[b][key] = {
+          name: r.name, brand: r.brand, title: r.title, size: r.size,
+          qty: 0, prepared: false, orders: [], keys: []
+        };
+      }
+      var slot = map[b][key];
+      slot.qty += r.qty;
+      slot.prepared = slot.prepared || r.prepared;
+      slot.keys.push(r.k);
+      if (r.order && slot.orders.indexOf(r.order) === -1) slot.orders.push(r.order);
+    });
+    return Object.keys(map).sort(function (a, b) {
+      if (a === 'Other') return 1;
+      if (b === 'Other') return -1;
+      return a.localeCompare(b);
+    }).map(function (b) {
+      return {
+        label: b,
+        items: Object.keys(map[b]).map(function (k) { return map[b][k]; })
+          .sort(function (x, y) {
+            return x.name.localeCompare(y.name)
+                || (parseFloat(x.size) || 0) - (parseFloat(y.size) || 0);
+          })
+      };
+    });
+  }
+
+  function groupByOrder(list) {
+    var map = {};
+    list.forEach(function (r) {
+      var o = r.order || 'No order';
+      if (!map[o]) map[o] = [];
+      map[o].push({
+        name: r.name, brand: r.brand, title: r.title, size: r.size,
+        qty: r.qty, prepared: r.prepared, orders: [], keys: [r.k]
+      });
+    });
+    return Object.keys(map).sort(function (a, b) {
+      if (a === 'No order') return 1;
+      if (b === 'No order') return -1;
+      return (parseInt(b, 10) || 0) - (parseInt(a, 10) || 0);
+    }).map(function (o) {
+      return {
+        label: o === 'No order' ? 'No order' : '#' + o,
+        items: map[o].sort(function (x, y) {
+          return x.name.localeCompare(y.name)
+              || (parseFloat(x.size) || 0) - (parseFloat(y.size) || 0);
+        })
+      };
+    });
+  }
+
+  /* ---------- marks: 0 none -> 1 found -> 2 still looking ---------- */
+  function stateOf(item) {
+    var first = marks[item.keys[0]] || 0;
+    for (var i = 1; i < item.keys.length; i++) {
+      if ((marks[item.keys[i]] || 0) !== first) return 0;
+    }
+    return first;
+  }
+  function cycle(item) {
+    var next = (stateOf(item) + 1) % 3;
+    item.keys.forEach(function (k) {
+      if (next === 0) delete marks[k];
+      else marks[k] = next;
+    });
+    persistMarks();
+  }
+  function glyphFor(state) {
+    return state === 1 ? '✓' : state === 2 ? '?' : '';
+  }
+
+  function updateProgress() {
+    var total = rows.length, found = 0, looking = 0;
+    rows.forEach(function (r) {
+      if (marks[r.k] === 1) found++;
+      else if (marks[r.k] === 2) looking++;
+    });
+    el.bar.style.width = total ? (found / total * 100) + '%' : '0';
+    var parts = [found + ' of ' + total + ' found'];
+    if (looking) parts.push(looking + ' still looking');
+    el.barLabel.textContent = parts.join(' · ');
+  }
+
+  /* ---------- render ---------- */
+  function render() {
+    var list = visible();
+    if (!list.length) {
+      el.out.innerHTML = '<div class="state"><h2>No matches</h2><p>Nothing on this list matches “'
+        + esc(query) + '”.</p></div>';
+      updateProgress();
+      return;
+    }
+
+    var groups = sortMode === 'order' ? groupByOrder(list) : groupByBrand(list);
+    var html = '';
+
+    groups.forEach(function (g) {
+      var units = g.items.reduce(function (n, i) { return n + i.qty; }, 0);
+      html += '<div class="group-head"><span class="group-name">' + esc(g.label) + '</span>'
+            + '<span class="group-count">' + units + (units === 1 ? ' decant' : ' decants') + '</span></div>'
+            + '<div class="card">';
+
+      g.items.forEach(function (item) {
+        var st = stateOf(item);
+        var sub = [];
+        if (sortMode === 'brand' && item.orders.length) {
+          sub.push('<span class="brandline">'
+            + item.orders.slice(0, 4).map(function (o) { return '#' + esc(o); }).join(' ')
+            + (item.orders.length > 4 ? ' +' + (item.orders.length - 4) : '')
+            + '</span>');
+        }
+        if (sortMode === 'order' && item.brand) {
+          sub.push('<span class="brandline">' + esc(item.brand) + '</span>');
+        }
+        sub.push('<span class="chip' + (item.prepared ? ' prepped' : '') + '">'
+          + esc(sizeLabel(item.size)) + (item.prepared ? ' ✓ prepped' : '') + '</span>');
+        if (item.qty > 1) sub.push('<span class="qty">×' + item.qty + '</span>');
+
+        html += '<div class="row" data-state="' + st + '">'
+              + '<button class="mark" data-act="mark" aria-label="Mark ' + esc(item.name) + '">'
+              +   '<span>' + glyphFor(st) + '</span>'
+              + '</button>'
+              + '<button class="body" data-act="info">'
+              +   '<div class="name">' + esc(item.name) + '</div>'
+              +   '<div class="sub">' + sub.join('') + '</div>'
+              + '</button>'
+              + '<span class="disclose"><svg width="7" height="12" viewBox="0 0 7 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l5 5-5 5"/></svg></span>'
+              + '</div>';
+      });
+
+      html += '</div>';
+    });
+
+    el.out.innerHTML = html;
+
+    var cards = el.out.querySelectorAll('.card');
+    groups.forEach(function (g, gi) {
+      var card = cards[gi];
+      if (!card) return;
+      g.items.forEach(function (item, ii) {
+        var row = card.children[ii];
+        if (!row) return;
+        row.querySelector('[data-act="mark"]').addEventListener('click', function () {
+          cycle(item);
+          var st = stateOf(item);
+          row.setAttribute('data-state', st);
+          row.querySelector('.mark span').textContent = glyphFor(st);
+          updateProgress();
+        });
+        row.querySelector('[data-act="info"]').addEventListener('click', function () {
+          openInfo(item);
+        });
+      });
+    });
+
+    updateProgress();
+  }
+
+  /* ---------- product sheet ---------- */
+  var sheetCache = {};
+
+  function closeSheet() {
+    el.sheet.classList.remove('open');
+    el.scrim.classList.remove('open');
+  }
+  el.scrim.addEventListener('click', closeSheet);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeSheet();
+  });
+
+  function stockClass(n) { return n > 5 ? 'stock-ok' : n > 0 ? 'stock-low' : 'stock-out'; }
+
+  function sheetHead(item) {
+    return '<h2 id="sheet-title">' + esc(item.name) + '</h2>'
+         + '<p class="sheet-brand">' + esc(item.brand || '') + '</p>';
+  }
+
+  function openInfo(item) {
+    el.sheet.classList.add('open');
+    el.scrim.classList.add('open');
+    el.sheet.scrollTop = 0;
+
+    var q = item.title || item.name;
+    if (sheetCache[q]) { paintInfo(item, sheetCache[q]); return; }
+
+    el.sheetBody.innerHTML = sheetHead(item) + '<div class="spinner" style="margin:40px auto"></div>';
+
+    fetch('/api/product?id=' + encodeURIComponent(shareId) + '&q=' + encodeURIComponent(q))
+      .then(function (r) {
+        return r.json().then(function (b) {
+          if (!r.ok) throw new Error(b.error || ('error ' + r.status));
+          return b;
+        });
+      })
+      .then(function (p) { sheetCache[q] = p; paintInfo(item, p); })
+      .catch(function (err) {
+        el.sheetBody.innerHTML = sheetHead(item)
+          + '<p class="sheet-err">Couldn’t load Shopify details: ' + esc(err.message) + '</p>';
+      });
+  }
+
+  function paintInfo(item, p) {
+    if (!p || !p.found) {
+      el.sheetBody.innerHTML = sheetHead(item)
+        + '<p class="sheet-err">No matching product found on Shopify for “'
+        + esc(item.title || item.name) + '”.</p>';
+      return;
+    }
+
+    var need = [p.vendor, sizeLabel(item.size) + ' needed', item.qty > 1 ? '×' + item.qty : '']
+      .filter(Boolean).join(' · ');
+
+    var h = '<h2 id="sheet-title">' + esc(p.title) + '</h2>'
+          + '<p class="sheet-brand">' + esc(need) + '</p>';
+
+    if (p.image) {
+      h += '<img class="hero" src="' + esc(p.image) + '" alt="' + esc(p.title) + '" loading="lazy">';
+    }
+    if (p.variants && p.variants.length) {
+      h += '<table><thead><tr><th>Variant</th><th class="num">In stock</th></tr></thead><tbody>';
+      p.variants.forEach(function (v) {
+        var n = typeof v.inventory === 'number' ? v.inventory : null;
+        h += '<tr><td class="vname">' + esc(v.title) + '</td>'
+           + '<td class="num ' + (n === null ? '' : stockClass(n)) + '">'
+           + (n === null ? '—' : n) + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    }
+    if (p.adminUrl) {
+      h += '<a class="admin-link" href="' + esc(p.adminUrl) + '" target="_blank" rel="noopener">Open in Shopify admin</a>';
+    }
+    el.sheetBody.innerHTML = h;
+  }
+
+  /* ---------- controls ---------- */
+  var searchTimer;
+  el.q.addEventListener('input', function () {
+    el.qClear.classList.toggle('on', !!el.q.value);
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      query = el.q.value.trim();
+      render();
+    }, 110);
+  });
+  el.qClear.addEventListener('click', function () {
+    el.q.value = '';
+    query = '';
+    el.qClear.classList.remove('on');
+    render();
+    el.q.focus();
+  });
+
+  function applySort() {
+    el.sortBrand.setAttribute('aria-pressed', String(sortMode === 'brand'));
+    el.sortOrder.setAttribute('aria-pressed', String(sortMode === 'order'));
+  }
+  function setSort(mode) {
+    sortMode = mode;
+    try { localStorage.setItem('ml.sort', mode); } catch (e) {}
+    applySort();
+    render();
+  }
+  el.sortBrand.addEventListener('click', function () { setSort('brand'); });
+  el.sortOrder.addEventListener('click', function () { setSort('order'); });
+})();
+</script>
+</body>
+</html>

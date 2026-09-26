@@ -1,7 +1,8 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Loader2, FileText, ChevronDown, RotateCcw, ClipboardList, LayoutGrid, Zap, Printer, MousePointer2, Settings2, Search } from 'lucide-react';
+import { Loader2, FileText, ChevronDown, RotateCcw, ClipboardList, LayoutGrid, Zap, Printer, MousePointer2, Settings2, Search, Copy, Check, X, ExternalLink, AlertTriangle } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { QRCodeSVG } from 'qrcode.react';
 import { LayoutType, AppTab, LAYOUT_CONFIGS, OrderItem } from './types';
 import Grid from './components/Grid';
 import OrderImport from './components/OrderImport';
@@ -32,6 +33,11 @@ const DEFAULT_ALT_NAME_DICT: Record<string, string> = {
   "ambre noir": "Ambre Noir"
 };
 
+type ShareState =
+  | { status: 'loading' }
+  | { status: 'ready'; url: string; expiresAt: string; count: number }
+  | { status: 'error'; message: string };
+
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>('import');
   const [layoutType, setLayoutType] = useState<LayoutType>('standard');
@@ -51,6 +57,11 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSettingsLoading, setIsSettingsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Shareable picking-list link
+  const [shareState, setShareState] = useState<ShareState | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [isPrintingList, setIsPrintingList] = useState(false);
 
   const preprocessText = useCallback((text: string): string => {
     if (!text) return '';
@@ -434,15 +445,11 @@ const App: React.FC = () => {
     printWindow.document.close();
   };
 
-  const generatePerfumeList = async () => {
-    if (importedItems.length === 0) {
-      alert("No data imported yet.");
-      return;
-    }
-
-    // Fetch prepared items from the Prepared sheet tab
-    // Sheet structure: col 0 = item name, then columns labelled 1ml / 3ml / 5ml / 10ml
-    // A non-empty value in a size column means that item is prepared for that size.
+  // Fetch prepared items from the Prepared sheet tab.
+  // Sheet structure: col 0 = item name, then columns labelled 1ml / 3ml / 5ml / 10ml.
+  // A non-empty value in a size column means that item is prepared for that size.
+  // Shared by the printed list and the shareable picking link.
+  const fetchPreparedMap = useCallback(async (): Promise<Map<string, Set<string>>> => {
     const preparedMap = new Map<string, Set<string>>(); // normalised name → set of prepared sizes
     try {
       const res = await fetch(`${PREPARED_SHEET_URL}&cachebust=${Date.now()}`);
@@ -473,12 +480,105 @@ const App: React.FC = () => {
     } catch (err) {
       console.error("Failed to fetch prepared list:", err);
     }
+    return preparedMap;
+  }, []);
 
-    const isSizePrepared = (rawTitle: string, size: string): boolean => {
-      const sizeNorm = size.toLowerCase().replace('ml', '').trim() + 'ml';
-      const check = (name: string) => preparedMap.get(name.toLowerCase())?.has(sizeNorm) ?? false;
-      return check(preprocessText(rawTitle)) || check(rawTitle);
-    };
+  const isPreparedIn = useCallback((
+    preparedMap: Map<string, Set<string>>,
+    rawTitle: string,
+    size: string
+  ): boolean => {
+    const sizeNorm = size.toLowerCase().replace('ml', '').trim() + 'ml';
+    const check = (name: string) => preparedMap.get(name.toLowerCase())?.has(sizeNorm) ?? false;
+    return check(preprocessText(rawTitle)) || check(rawTitle);
+  }, [preprocessText]);
+
+  // Longest match wins, so "Yves Saint Laurent" beats "YSL" on a title holding both.
+  const detectBrand = useCallback((rawTitle: string): string => {
+    const lower = (rawTitle || '').toLowerCase();
+    let best = '';
+    brands.forEach(b => {
+      if (b.length > best.length && lower.includes(b.toLowerCase())) best = b;
+    });
+    return best;
+  }, [brands]);
+
+  // Rows with a blank order number belong to the order above them, matching how
+  // OrderImport displays them. Without this the shared list's order grouping
+  // would drop nearly everything into "No order".
+  const itemsWithEffectiveOrders = useCallback(() => {
+    let lastOrder = '';
+    return importedItems.map(item => {
+      const current = (item.orderNumber || '').trim();
+      if (current) lastOrder = current;
+      return { ...item, effectiveOrder: current || lastOrder };
+    });
+  }, [importedItems]);
+
+  // Opens the picking-list modal and creates the 24h share link behind it, so the
+  // QR is already on screen by the time the modal finishes animating in.
+  const openPickingList = async () => {
+    if (importedItems.length === 0) {
+      alert("No data imported yet.");
+      return;
+    }
+    setShareState({ status: 'loading' });
+    try {
+      const preparedMap = await fetchPreparedMap();
+      const items = itemsWithEffectiveOrders()
+        .filter(item => (item.productTitle || '').trim())
+        .map(item => {
+          const title = item.productTitle.trim();
+          return {
+            order: item.effectiveOrder,
+            title,
+            brand: detectBrand(title),
+            name: preprocessText(title) || title,
+            size: item.size,
+            qty: item.quantity || 1,
+            prepared: isPreparedIn(preparedMap, title, item.size),
+          };
+        });
+
+      if (items.length === 0) {
+        setShareState({ status: 'error', message: 'None of the imported rows have a product name yet.' });
+        return;
+      }
+
+      const res = await fetch('/api/share-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: `Picking List — ${new Date().toLocaleDateString()}`, items }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Server returned ${res.status}`);
+
+      setShareState({ status: 'ready', url: body.url, expiresAt: body.expiresAt, count: body.count });
+    } catch (err) {
+      setShareState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const copyShareLink = async () => {
+    if (shareState?.status !== 'ready' || !shareState.url) return;
+    try {
+      await navigator.clipboard.writeText(shareState.url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1800);
+    } catch {
+      /* clipboard blocked — the link is on screen to copy by hand */
+    }
+  };
+
+  const generatePerfumeList = async () => {
+    if (importedItems.length === 0) {
+      alert("No data imported yet.");
+      return;
+    }
+
+    const preparedMap = await fetchPreparedMap();
+    const isSizePrepared = (rawTitle: string, size: string): boolean =>
+      isPreparedIn(preparedMap, rawTitle, size);
 
     // Group items by title; repeat size entry by quantity so counts are accurate
     const grouped = importedItems.reduce((acc, item) => {
@@ -595,6 +695,15 @@ const App: React.FC = () => {
     window.open(blobUrl, '_blank');
   };
 
+  const handlePrintList = async () => {
+    setIsPrintingList(true);
+    try {
+      await generatePerfumeList();
+    } finally {
+      setIsPrintingList(false);
+    }
+  };
+
   const currentConfig = LAYOUT_CONFIGS[layoutType];
 
   return (
@@ -653,10 +762,10 @@ const App: React.FC = () => {
                <span className="text-[10px] font-black text-black/30">V1.1 PROMAX</span>
             </div>
 
-            <button 
-              onClick={generatePerfumeList}
+            <button
+              onClick={openPickingList}
               className="flex items-center gap-2 bg-white hover:bg-gray-50 text-black px-3 md:px-4 py-1.5 rounded-full border border-black/10 shadow-sm transition-all active:scale-95 text-[10px] font-bold uppercase tracking-wider"
-              title="Generate Perfume List"
+              title="Picking list — scan on a phone or print"
             >
               <FileText size={14} className="text-blue-500" />
               <span className="hidden sm:inline">List</span>
@@ -850,7 +959,121 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <SettingsModal 
+      {/* Picking list: scan the QR to carry it on a phone, or print it on paper.
+          Printing never touches the network, so it stays available even when the
+          share link fails. */}
+      {shareState && (
+        <div className="no-print fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 apple-blur" onClick={() => setShareState(null)} />
+          <div className="relative bg-white/95 apple-blur rounded-[24px] shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto border border-black/10">
+            <button
+              onClick={() => setShareState(null)}
+              className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-black rounded-full hover:bg-black/5 transition-colors z-10"
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="p-8">
+              <div className="mx-auto w-12 h-12 flex items-center justify-center rounded-full mb-4 bg-blue-50 text-blue-500">
+                <ClipboardList size={22} />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-1 text-center">Picking List</h3>
+              <p className="text-xs text-gray-500 font-medium text-center mb-6">
+                {shareState.status === 'ready'
+                  ? <>{shareState.count} {shareState.count === 1 ? 'item' : 'items'} · link expires {new Date(shareState.expiresAt).toLocaleString()}</>
+                  : shareState.status === 'loading'
+                    ? 'Building your list…'
+                    : 'Ready to print'}
+              </p>
+
+              {shareState.status === 'loading' && (
+                <div className="flex flex-col items-center justify-center gap-3 h-[206px] bg-gray-50 rounded-2xl border border-black/5">
+                  <Loader2 size={22} className="text-blue-500 animate-spin" />
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Creating link</span>
+                </div>
+              )}
+
+              {shareState.status === 'error' && (
+                <div className="flex flex-col items-center justify-center gap-2 px-6 py-6 bg-amber-50/60 rounded-2xl border border-amber-200/60 text-center">
+                  <AlertTriangle size={20} className="text-amber-500" />
+                  <span className="text-xs font-bold text-gray-700">No share link this time</span>
+                  <span className="text-[11px] text-gray-500 font-medium leading-relaxed break-words">{shareState.message}</span>
+                  <span className="text-[10px] text-gray-400 leading-relaxed mt-1">
+                    Share links need the Netlify functions — run <span className="font-bold">netlify dev</span> locally. You can still print.
+                  </span>
+                </div>
+              )}
+
+              {shareState.status === 'ready' && (
+                <>
+                  {/* Encoded in-browser — the URL is never sent to a QR service */}
+                  <div className="flex justify-center mb-4">
+                    <div className="p-3 bg-white rounded-2xl border border-black/10 shadow-sm">
+                      <QRCodeSVG
+                        value={shareState.url}
+                        size={180}
+                        level="M"
+                        marginSize={4}
+                        title="Picking list link"
+                        className="block"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center mb-5">
+                    Scan with the phone
+                  </p>
+
+                  <div className="flex items-center gap-2 bg-gray-50 border border-black/5 rounded-xl px-3 py-2.5 mb-3">
+                    <input
+                      readOnly
+                      value={shareState.url}
+                      onFocus={e => e.currentTarget.select()}
+                      className="flex-1 min-w-0 bg-transparent outline-none text-[11px] font-semibold text-gray-700"
+                    />
+                    <button
+                      onClick={copyShareLink}
+                      className="shrink-0 flex items-center gap-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all active:scale-95"
+                    >
+                      {shareCopied ? <Check size={12} /> : <Copy size={12} />}
+                      {shareCopied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+
+                  <a
+                    href={shareState.url}
+                    target="_blank"
+                    rel="noopener"
+                    className="flex items-center justify-center gap-2 w-full bg-white border border-black/10 hover:bg-gray-50 text-gray-700 py-3 rounded-xl text-xs font-bold transition-all active:scale-95"
+                  >
+                    <ExternalLink size={13} /> Open on this device
+                  </a>
+                </>
+              )}
+
+              <div className="h-px bg-black/5 my-6" />
+
+              <button
+                onClick={handlePrintList}
+                disabled={isPrintingList}
+                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-[16px] font-black text-xs shadow-lg shadow-blue-500/20 transition-all active:scale-95 disabled:opacity-60 disabled:cursor-wait"
+              >
+                {isPrintingList
+                  ? <><Loader2 size={15} className="animate-spin" /> BUILDING PDF…</>
+                  : <><Printer size={15} /> PRINT LIST</>}
+              </button>
+
+              {shareState.status === 'ready' && (
+                <p className="text-[11px] text-gray-400 mt-5 leading-relaxed text-center">
+                  Anyone with this link can see the list and product stock levels. It stops working after 24 hours.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         brands={brands}
