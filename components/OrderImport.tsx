@@ -1,7 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Upload, Plus, Trash2, XCircle, Eraser, AlertTriangle, Send, CheckCircle2, Loader2, ShoppingBag } from 'lucide-react';
+import { Upload, Plus, Trash2, XCircle, Eraser, AlertTriangle, Send, CheckCircle2, Loader2, ShoppingBag, PackagePlus, FlaskConical } from 'lucide-react';
 import { OrderItem } from '../types';
+import OrderPickerModal from './OrderPickerModal';
+import ProductPickerModal from './ProductPickerModal';
 
 interface OrderImportProps {
   data: OrderItem[];
@@ -26,6 +28,8 @@ const SYNC_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwl-zt1bZxJM_X
 
 const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyncing, setIsSyncing, existingOrders, searchTerm }) => {
   const [isAutoFetching, setIsAutoFetching] = useState(false);
+  const [isOrderPickerOpen, setIsOrderPickerOpen] = useState(false);
+  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>({
     isOpen: false,
     title: '',
@@ -45,6 +49,16 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
     const last = list[list.length - 1];
     const isLastEmpty = last.orderNumber.trim() === '' && last.productTitle.trim() === '' && last.size.trim() === '';
     return isLastEmpty ? list : [...list, blank()];
+  };
+
+  /** Appends after the last real row, dropping the trailing blank first so new
+   *  rows never land underneath an empty one. */
+  const appendRows = (incoming: OrderItem[]) => {
+    if (incoming.length === 0) return;
+    const existing = data.filter(
+      item => item.orderNumber.trim() !== '' || item.productTitle.trim() !== '' || item.size.trim() !== ''
+    );
+    onUpdate(ensureTrailingBlank([...existing, ...incoming]));
   };
 
   useEffect(() => {
@@ -266,6 +280,18 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      <OrderPickerModal
+        isOpen={isOrderPickerOpen}
+        onClose={() => setIsOrderPickerOpen(false)}
+        onAdd={appendRows}
+        existingOrders={existingOrders}
+      />
+      <ProductPickerModal
+        isOpen={isProductPickerOpen}
+        onClose={() => setIsProductPickerOpen(false)}
+        onAdd={appendRows}
+      />
+
       {modal.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 apple-blur" onClick={closeModal} />
@@ -289,22 +315,50 @@ const OrderImport: React.FC<OrderImportProps> = ({ data, onUpdate, onSync, isSyn
 
       {/* High Fidelity Control Bar */}
       <div className="flex flex-col md:flex-row items-center justify-between p-4 md:p-5 bg-white/80 apple-blur border-b border-black/5 shrink-0 gap-4">
-        <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto overflow-x-auto no-scrollbar pb-2 md:pb-0">
-          <label className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 md:px-6 py-2.5 md:py-3 rounded-xl cursor-pointer transition-all font-bold text-[10px] md:text-xs shadow-sm active:scale-95 whitespace-nowrap">
-            <Upload size={16} /> <span className="hidden sm:inline">Import CSV / TXT</span><span className="sm:hidden">Import</span>
-            <input type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
-          </label>
-          <button
-            onClick={fetchShopifyOrders}
-            disabled={isAutoFetching}
-            className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-600 px-4 md:px-6 py-2.5 md:py-3 rounded-xl transition-all font-bold text-[10px] md:text-xs shadow-sm active:scale-95 whitespace-nowrap disabled:opacity-60 disabled:cursor-wait"
-          >
-            {isAutoFetching ? <Loader2 size={16} className="animate-spin" /> : <ShoppingBag size={16} />}
-            <span className="hidden sm:inline">Auto Get Orders</span><span className="sm:hidden">Auto</span>
-          </button>
-          <div className="h-6 w-px bg-black/5 mx-1 hidden md:block" />
-          <button onClick={clearAll} className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-3 md:px-4 py-2 md:py-2.5 rounded-xl transition-all font-bold text-[10px] md:text-xs hover:bg-red-50 active:scale-95 whitespace-nowrap">
-            <Eraser size={16} /> <span className="hidden sm:inline">Clear Workbench</span><span className="sm:hidden">Clear</span>
+        {/* Source toolbar — every way of getting rows onto the workbench */}
+        <div className="flex items-center gap-1 w-full md:w-auto overflow-x-auto no-scrollbar pb-2 md:pb-0">
+          <div className="flex items-center gap-1 bg-black/[0.04] rounded-xl p-1">
+            <label className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 px-3 md:px-3.5 py-2 rounded-lg cursor-pointer transition-all font-bold text-[10px] md:text-[11px] shadow-sm border border-black/5 active:scale-95 whitespace-nowrap">
+              <Upload size={14} className="text-gray-400" />
+              <span className="hidden sm:inline">Import CSV / TXT</span><span className="sm:hidden">CSV</span>
+              <input type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
+            </label>
+
+            <button
+              onClick={fetchShopifyOrders}
+              disabled={isAutoFetching}
+              title="Pull unfulfilled sample orders from the last 3 days"
+              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 px-3 md:px-3.5 py-2 rounded-lg transition-all font-bold text-[10px] md:text-[11px] shadow-sm border border-black/5 active:scale-95 whitespace-nowrap disabled:opacity-60 disabled:cursor-wait"
+            >
+              {isAutoFetching
+                ? <Loader2 size={14} className="animate-spin text-blue-500" />
+                : <ShoppingBag size={14} className="text-blue-500" />}
+              <span className="hidden sm:inline">Auto Get Orders</span><span className="sm:hidden">Auto</span>
+            </button>
+
+            <button
+              onClick={() => setIsOrderPickerOpen(true)}
+              title="Pick specific orders to add"
+              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 px-3 md:px-3.5 py-2 rounded-lg transition-all font-bold text-[10px] md:text-[11px] shadow-sm border border-black/5 active:scale-95 whitespace-nowrap"
+            >
+              <PackagePlus size={14} className="text-blue-500" />
+              <span className="hidden sm:inline">Add By Order</span><span className="sm:hidden">Order</span>
+            </button>
+
+            <button
+              onClick={() => setIsProductPickerOpen(true)}
+              title="Search products and add sample sizes directly"
+              className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 px-3 md:px-3.5 py-2 rounded-lg transition-all font-bold text-[10px] md:text-[11px] shadow-sm border border-black/5 active:scale-95 whitespace-nowrap"
+            >
+              <FlaskConical size={14} className="text-blue-500" />
+              <span className="hidden sm:inline">Add By Product</span><span className="sm:hidden">Product</span>
+            </button>
+          </div>
+
+          <div className="h-6 w-px bg-black/5 mx-1.5 hidden md:block" />
+
+          <button onClick={clearAll} className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-3 py-2 rounded-lg transition-all font-bold text-[10px] md:text-[11px] hover:bg-red-50 active:scale-95 whitespace-nowrap">
+            <Eraser size={14} /> <span className="hidden sm:inline">Clear Workbench</span><span className="sm:hidden">Clear</span>
           </button>
         </div>
         
